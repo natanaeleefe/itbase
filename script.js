@@ -53,6 +53,102 @@ document.addEventListener("DOMContentLoaded", () => {
         applyFiltersAndSort();
         mostrarUsuarios();
         updatePagination();
+        
+        // Adicionar efeitos de entrada
+        addPageLoadEffects();
+    }
+    
+    function addPageLoadEffects() {
+        // Animar números das estatísticas
+        animateCounters();
+        
+        // Adicionar efeito de digitação no placeholder da busca
+        addTypingEffect();
+        
+        // Adicionar efeitos de hover nos elementos interativos
+        addHoverEffects();
+    }
+    
+    function animateCounters() {
+        const counters = [totalUsersEl, newUsersTodayEl, filteredUsersEl];
+        
+        counters.forEach((counter, index) => {
+            const target = parseInt(counter.textContent) || 0;
+            let current = 0;
+            const increment = target / 30;
+            
+            const timer = setInterval(() => {
+                current += increment;
+                if (current >= target) {
+                    counter.textContent = target;
+                    clearInterval(timer);
+                } else {
+                    counter.textContent = Math.floor(current);
+                }
+            }, 50 + (index * 20));
+        });
+    }
+    
+    function addTypingEffect() {
+        const placeholder = "Buscar por nome, email ou cargo...";
+        let index = 0;
+        
+        const typeEffect = () => {
+            if (index < placeholder.length) {
+                searchInput.placeholder = placeholder.substring(0, index + 1);
+                index++;
+                setTimeout(typeEffect, 100);
+            }
+        };
+        
+        setTimeout(typeEffect, 2000);
+    }
+    
+    function addHoverEffects() {
+        // Efeito de ripple nos botões
+        document.querySelectorAll('button, .btn-primary, .btn-secondary, .btn-danger, .btn-export').forEach(button => {
+            button.addEventListener('click', createRippleEffect);
+        });
+        
+        // Efeito de shake nos campos com erro
+        document.querySelectorAll('input, select').forEach(input => {
+            input.addEventListener('invalid', (e) => {
+                e.target.style.animation = 'shake 0.5s ease-in-out';
+                setTimeout(() => {
+                    e.target.style.animation = '';
+                }, 500);
+            });
+        });
+    }
+    
+    function createRippleEffect(e) {
+        const button = e.currentTarget;
+        const rect = button.getBoundingClientRect();
+        const size = Math.max(rect.width, rect.height);
+        const x = e.clientX - rect.left - size / 2;
+        const y = e.clientY - rect.top - size / 2;
+        
+        const ripple = document.createElement('span');
+        ripple.style.cssText = `
+            position: absolute;
+            width: ${size}px;
+            height: ${size}px;
+            left: ${x}px;
+            top: ${y}px;
+            background: rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            transform: scale(0);
+            animation: ripple 0.6s ease-out;
+            pointer-events: none;
+        `;
+        
+        button.style.position = 'relative';
+        button.style.overflow = 'hidden';
+        button.appendChild(ripple);
+        
+        setTimeout(() => {
+            ripple.remove();
+        }, 600);
     }
     
     function setupEventListeners() {
@@ -60,13 +156,13 @@ document.addEventListener("DOMContentLoaded", () => {
         userForm.addEventListener("submit", handleFormSubmit);
         document.getElementById("clearForm").addEventListener("click", clearForm);
         
-        // Busca e filtros
-        searchInput.addEventListener("input", handleSearch);
+        // Busca e filtros com debounce
+        searchInput.addEventListener("input", debounce(handleSearch, 300));
         clearSearchBtn.addEventListener("click", clearSearch);
         cargoFilter.addEventListener("change", handleFilter);
         sortBy.addEventListener("change", handleSort);
         
-        // Visualização
+        // Visualização com animação
         gridViewBtn.addEventListener("click", () => setView('grid'));
         listViewBtn.addEventListener("click", () => setView('list'));
         
@@ -77,10 +173,10 @@ document.addEventListener("DOMContentLoaded", () => {
         lastPageBtn.addEventListener("click", () => goToPage(getTotalPages()));
         itemsPerPageSelect.addEventListener("change", handleItemsPerPageChange);
         
-        // Export
+        // Export com animação
         exportBtn.addEventListener("click", exportData);
         
-        // Preview de arquivo
+        // Preview de arquivo com animação
         fotoInput.addEventListener("change", handleFilePreview);
         
         // Modal events
@@ -88,6 +184,48 @@ document.addEventListener("DOMContentLoaded", () => {
         
         // Validação em tempo real
         setupRealTimeValidation();
+        
+        // Adicionar efeitos de teclado
+        setupKeyboardEffects();
+    }
+    
+    function debounce(func, wait) {
+        let timeout;
+        return function executedFunction(...args) {
+            const later = () => {
+                clearTimeout(timeout);
+                func(...args);
+            };
+            clearTimeout(timeout);
+            timeout = setTimeout(later, wait);
+        };
+    }
+    
+    function setupKeyboardEffects() {
+        // Efeito de digitação nos inputs
+        document.querySelectorAll('input[type="text"], input[type="email"], textarea').forEach(input => {
+            input.addEventListener('keydown', (e) => {
+                input.style.transform = 'scale(1.01)';
+                setTimeout(() => {
+                    input.style.transform = 'scale(1)';
+                }, 100);
+            });
+        });
+        
+        // Atalhos de teclado
+        document.addEventListener('keydown', (e) => {
+            // Ctrl/Cmd + K para focar na busca
+            if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+                e.preventDefault();
+                searchInput.focus();
+                searchInput.select();
+            }
+            
+            // Escape para limpar busca
+            if (e.key === 'Escape' && document.activeElement === searchInput) {
+                clearSearch();
+            }
+        });
     }
     
     function setupModalEvents() {
@@ -109,6 +247,18 @@ document.addEventListener("DOMContentLoaded", () => {
         editModal.addEventListener("click", (e) => {
             if (e.target === editModal) closeEditModal();
         });
+        
+        // Escape key to close modals
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                if (confirmModal.classList.contains('show')) {
+                    closeConfirmModal();
+                }
+                if (editModal.classList.contains('show')) {
+                    closeEditModal();
+                }
+            }
+        });
     }
     
     function setupRealTimeValidation() {
@@ -125,22 +275,42 @@ document.addEventListener("DOMContentLoaded", () => {
             
             input.addEventListener('blur', () => {
                 const error = validator(input.value.trim());
-                showFieldError(errorEl, error);
+                showFieldError(errorEl, error, input);
             });
             
             input.addEventListener('input', () => {
                 if (errorEl.textContent) {
                     const error = validator(input.value.trim());
-                    showFieldError(errorEl, error);
+                    showFieldError(errorEl, error, input);
+                }
+            });
+            
+            // Efeito visual de validação em tempo real
+            input.addEventListener('input', () => {
+                const isValid = !validator(input.value.trim());
+                input.style.borderColor = isValid ? 'var(--success-color)' : '';
+                
+                if (isValid && input.value.trim()) {
+                    input.style.boxShadow = '0 0 0 3px rgba(52, 199, 89, 0.1)';
+                } else {
+                    input.style.boxShadow = '';
                 }
             });
         });
     }
     
-    function showFieldError(errorEl, error) {
+    function showFieldError(errorEl, error, input) {
         errorEl.textContent = error || '';
-        errorEl.parentElement.querySelector('input, select').style.borderColor = 
-            error ? 'var(--danger-color)' : '';
+        
+        if (error) {
+            input.style.borderColor = 'var(--danger-color)';
+            input.style.animation = 'shake 0.5s ease-in-out';
+            setTimeout(() => {
+                input.style.animation = '';
+            }, 500);
+        } else {
+            input.style.borderColor = '';
+        }
     }
     
     // Validadores
@@ -230,9 +400,33 @@ document.addEventListener("DOMContentLoaded", () => {
             new Date(u.dataCadastro).toDateString() === today
         ).length;
         
-        totalUsersEl.textContent = usuarios.length;
-        newUsersTodayEl.textContent = newToday;
-        filteredUsersEl.textContent = filteredUsuarios.length;
+        // Animar mudanças nos números
+        animateNumberChange(totalUsersEl, usuarios.length);
+        animateNumberChange(newUsersTodayEl, newToday);
+        animateNumberChange(filteredUsersEl, filteredUsuarios.length);
+    }
+    
+    function animateNumberChange(element, newValue) {
+        const currentValue = parseInt(element.textContent) || 0;
+        if (currentValue === newValue) return;
+        
+        const duration = 500;
+        const steps = 20;
+        const stepValue = (newValue - currentValue) / steps;
+        let current = currentValue;
+        let step = 0;
+        
+        const timer = setInterval(() => {
+            step++;
+            current += stepValue;
+            
+            if (step >= steps) {
+                element.textContent = newValue;
+                clearInterval(timer);
+            } else {
+                element.textContent = Math.round(current);
+            }
+        }, duration / steps);
     }
     
     function applyFiltersAndSort() {
@@ -294,9 +488,10 @@ document.addEventListener("DOMContentLoaded", () => {
         const startIndex = (currentPage - 1) * itemsPerPage;
         const paginatedUsers = filteredUsuarios.slice(startIndex, startIndex + itemsPerPage);
         
-        paginatedUsers.forEach(usuario => {
+        paginatedUsers.forEach((usuario, index) => {
             const div = document.createElement("div");
             div.className = `usuario-card ${currentView === 'list' ? 'list-view' : ''}`;
+            div.style.animationDelay = `${index * 0.1}s`;
             
             const dataFormatada = new Date(usuario.dataCadastro).toLocaleDateString('pt-BR');
             
@@ -335,6 +530,17 @@ document.addEventListener("DOMContentLoaded", () => {
             btn.addEventListener('click', (e) => {
                 const userId = parseInt(e.currentTarget.dataset.userId);
                 confirmRemoveUser(userId);
+            });
+        });
+        
+        // Adicionar efeito de hover nos cards
+        document.querySelectorAll('.usuario-card').forEach(card => {
+            card.addEventListener('mouseenter', () => {
+                card.style.transform = currentView === 'grid' ? 'translateY(-8px) scale(1.02)' : 'translateX(8px)';
+            });
+            
+            card.addEventListener('mouseleave', () => {
+                card.style.transform = 'none';
             });
         });
     }
@@ -412,6 +618,12 @@ document.addEventListener("DOMContentLoaded", () => {
             currentPage = page;
             mostrarUsuarios();
             updatePagination();
+            
+            // Scroll suave para o topo da lista
+            usuariosContainer.scrollIntoView({ 
+                behavior: 'smooth', 
+                block: 'start' 
+            });
         }
     }
     
@@ -437,7 +649,8 @@ document.addEventListener("DOMContentLoaded", () => {
         // Mostrar erros
         Object.keys(errors).forEach(field => {
             const errorEl = document.getElementById(`${field}Error`);
-            showFieldError(errorEl, errors[field]);
+            const input = document.getElementById(field);
+            showFieldError(errorEl, errors[field], input);
         });
         
         // Se há erros, não prosseguir
@@ -446,21 +659,35 @@ document.addEventListener("DOMContentLoaded", () => {
             return;
         }
         
+        // Adicionar loading ao botão
+        const submitBtn = e.target.querySelector('button[type="submit"]');
+        const originalText = submitBtn.innerHTML;
+        submitBtn.innerHTML = '<iconify-icon icon="mdi:loading" class="animate-spin"></iconify-icon> Salvando...';
+        submitBtn.disabled = true;
+        
         // Processar foto
         if (formData.foto) {
             const reader = new FileReader();
             reader.onload = function(event) {
-                saveUser({
-                    ...formData,
-                    foto: event.target.result
-                });
+                setTimeout(() => {
+                    saveUser({
+                        ...formData,
+                        foto: event.target.result
+                    });
+                    submitBtn.innerHTML = originalText;
+                    submitBtn.disabled = false;
+                }, 1000); // Simular delay de processamento
             };
             reader.readAsDataURL(formData.foto);
         } else {
-            saveUser({
-                ...formData,
-                foto: "https://images.pexels.com/photos/1300402/pexels-photo-1300402.jpeg?auto=compress&cs=tinysrgb&w=150&h=150&fit=crop"
-            });
+            setTimeout(() => {
+                saveUser({
+                    ...formData,
+                    foto: "https://images.pexels.com/photos/1300402/pexels-photo-1300402.jpeg?auto=compress&cs=tinysrgb&w=150&h=150&fit=crop"
+                });
+                submitBtn.innerHTML = originalText;
+                submitBtn.disabled = false;
+            }, 1000);
         }
     }
     
@@ -482,17 +709,54 @@ document.addEventListener("DOMContentLoaded", () => {
         
         // Ir para a primeira página para mostrar o novo usuário
         goToPage(1);
+        
+        // Efeito de confetti
+        createConfettiEffect();
+    }
+    
+    function createConfettiEffect() {
+        const colors = ['#007AFF', '#34C759', '#FF9500', '#FF3B30'];
+        const confettiCount = 50;
+        
+        for (let i = 0; i < confettiCount; i++) {
+            const confetti = document.createElement('div');
+            confetti.style.cssText = `
+                position: fixed;
+                width: 10px;
+                height: 10px;
+                background: ${colors[Math.floor(Math.random() * colors.length)]};
+                left: ${Math.random() * 100}vw;
+                top: -10px;
+                border-radius: 50%;
+                pointer-events: none;
+                z-index: 9999;
+                animation: confetti-fall ${2 + Math.random() * 3}s linear forwards;
+            `;
+            
+            document.body.appendChild(confetti);
+            
+            setTimeout(() => {
+                confetti.remove();
+            }, 5000);
+        }
     }
     
     function clearForm() {
         userForm.reset();
         
-        // Limpar preview da foto
-        filePreview.innerHTML = `
-            <iconify-icon icon="mdi:camera-plus"></iconify-icon>
-            <span>Clique para adicionar foto</span>
-        `;
-        filePreview.classList.remove('has-image');
+        // Limpar preview da foto com animação
+        filePreview.style.transform = 'scale(0.9)';
+        filePreview.style.opacity = '0.5';
+        
+        setTimeout(() => {
+            filePreview.innerHTML = `
+                <iconify-icon icon="mdi:camera-plus"></iconify-icon>
+                <span>Clique para adicionar foto</span>
+            `;
+            filePreview.classList.remove('has-image');
+            filePreview.style.transform = 'scale(1)';
+            filePreview.style.opacity = '1';
+        }, 200);
         
         // Limpar erros
         document.querySelectorAll('.error-message').forEach(el => {
@@ -502,6 +766,7 @@ document.addEventListener("DOMContentLoaded", () => {
         // Resetar estilos dos campos
         document.querySelectorAll('input, select').forEach(el => {
             el.style.borderColor = '';
+            el.style.boxShadow = '';
         });
     }
     
@@ -520,10 +785,18 @@ document.addEventListener("DOMContentLoaded", () => {
                 return;
             }
             
+            // Animação de loading
+            filePreview.innerHTML = `
+                <iconify-icon icon="mdi:loading" class="animate-spin"></iconify-icon>
+                <span>Carregando...</span>
+            `;
+            
             const reader = new FileReader();
             reader.onload = function(event) {
-                filePreview.innerHTML = `<img src="${event.target.result}" alt="Preview">`;
-                filePreview.classList.add('has-image');
+                setTimeout(() => {
+                    filePreview.innerHTML = `<img src="${event.target.result}" alt="Preview">`;
+                    filePreview.classList.add('has-image');
+                }, 500);
             };
             reader.readAsDataURL(file);
         }
@@ -536,16 +809,30 @@ document.addEventListener("DOMContentLoaded", () => {
         applyFiltersAndSort();
         mostrarUsuarios();
         updatePagination();
+        
+        // Efeito visual de busca
+        if (currentSearch) {
+            searchInput.style.background = 'rgba(0, 122, 255, 0.05)';
+        } else {
+            searchInput.style.background = '';
+        }
     }
     
     function clearSearch() {
         searchInput.value = '';
         currentSearch = '';
         clearSearchBtn.classList.remove('show');
+        searchInput.style.background = '';
         currentPage = 1;
         applyFiltersAndSort();
         mostrarUsuarios();
         updatePagination();
+        
+        // Efeito de limpeza
+        searchInput.style.transform = 'scale(1.05)';
+        setTimeout(() => {
+            searchInput.style.transform = 'scale(1)';
+        }, 150);
     }
     
     function handleFilter(e) {
@@ -554,6 +841,12 @@ document.addEventListener("DOMContentLoaded", () => {
         applyFiltersAndSort();
         mostrarUsuarios();
         updatePagination();
+        
+        // Efeito visual no filtro
+        e.target.style.transform = 'scale(1.02)';
+        setTimeout(() => {
+            e.target.style.transform = 'scale(1)';
+        }, 150);
     }
     
     function handleSort(e) {
@@ -561,13 +854,28 @@ document.addEventListener("DOMContentLoaded", () => {
         applyFiltersAndSort();
         mostrarUsuarios();
         updatePagination();
+        
+        // Efeito visual na ordenação
+        e.target.style.transform = 'scale(1.02)';
+        setTimeout(() => {
+            e.target.style.transform = 'scale(1)';
+        }, 150);
     }
     
     function setView(view) {
         currentView = view;
         gridViewBtn.classList.toggle('active', view === 'grid');
         listViewBtn.classList.toggle('active', view === 'list');
-        mostrarUsuarios();
+        
+        // Animação de transição entre views
+        usuariosContainer.style.opacity = '0';
+        usuariosContainer.style.transform = 'scale(0.95)';
+        
+        setTimeout(() => {
+            mostrarUsuarios();
+            usuariosContainer.style.opacity = '1';
+            usuariosContainer.style.transform = 'scale(1)';
+        }, 200);
     }
     
     function handleItemsPerPageChange(e) {
@@ -575,6 +883,12 @@ document.addEventListener("DOMContentLoaded", () => {
         currentPage = 1;
         mostrarUsuarios();
         updatePagination();
+        
+        // Efeito visual
+        e.target.style.transform = 'scale(1.05)';
+        setTimeout(() => {
+            e.target.style.transform = 'scale(1)';
+        }, 150);
     }
     
     function confirmRemoveUser(userId) {
@@ -651,22 +965,33 @@ document.addEventListener("DOMContentLoaded", () => {
             return;
         }
         
-        // Atualizar usuário
-        const userIndex = usuarios.findIndex(u => u.id === userId);
-        if (userIndex !== -1) {
-            usuarios[userIndex] = {
-                ...usuarios[userIndex],
-                ...formData
-            };
+        // Adicionar loading ao botão
+        const saveBtn = document.getElementById('editModalSave');
+        const originalText = saveBtn.innerHTML;
+        saveBtn.innerHTML = '<iconify-icon icon="mdi:loading" class="animate-spin"></iconify-icon> Salvando...';
+        saveBtn.disabled = true;
+        
+        setTimeout(() => {
+            // Atualizar usuário
+            const userIndex = usuarios.findIndex(u => u.id === userId);
+            if (userIndex !== -1) {
+                usuarios[userIndex] = {
+                    ...usuarios[userIndex],
+                    ...formData
+                };
+                
+                salvarUsuarios();
+                applyFiltersAndSort();
+                mostrarUsuarios();
+                updatePagination();
+                
+                showToast('Sucesso', 'Usuário atualizado com sucesso!', 'success');
+                closeEditModal();
+            }
             
-            salvarUsuarios();
-            applyFiltersAndSort();
-            mostrarUsuarios();
-            updatePagination();
-            
-            showToast('Sucesso', 'Usuário atualizado com sucesso!', 'success');
-            closeEditModal();
-        }
+            saveBtn.innerHTML = originalText;
+            saveBtn.disabled = false;
+        }, 1000);
     }
     
     function closeEditModal() {
@@ -679,30 +1004,39 @@ document.addEventListener("DOMContentLoaded", () => {
             return;
         }
         
-        const csvContent = [
-            ['Nome', 'Email', 'Telefone', 'Cargo', 'Data de Cadastro'],
-            ...filteredUsuarios.map(u => [
-                u.nome,
-                u.email,
-                u.telefone,
-                u.cargo,
-                new Date(u.dataCadastro).toLocaleDateString('pt-BR')
-            ])
-        ].map(row => row.map(field => `"${field}"`).join(',')).join('\n');
+        // Animação no botão de export
+        exportBtn.innerHTML = '<iconify-icon icon="mdi:loading" class="animate-spin"></iconify-icon> Exportando...';
+        exportBtn.disabled = true;
         
-        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-        const link = document.createElement('a');
-        const url = URL.createObjectURL(blob);
-        
-        link.setAttribute('href', url);
-        link.setAttribute('download', `usuarios_${new Date().toISOString().split('T')[0]}.csv`);
-        link.style.visibility = 'hidden';
-        
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        
-        showToast('Sucesso', 'Dados exportados com sucesso!', 'success');
+        setTimeout(() => {
+            const csvContent = [
+                ['Nome', 'Email', 'Telefone', 'Cargo', 'Data de Cadastro'],
+                ...filteredUsuarios.map(u => [
+                    u.nome,
+                    u.email,
+                    u.telefone,
+                    u.cargo,
+                    new Date(u.dataCadastro).toLocaleDateString('pt-BR')
+                ])
+            ].map(row => row.map(field => `"${field}"`).join(',')).join('\n');
+            
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement('a');
+            const url = URL.createObjectURL(blob);
+            
+            link.setAttribute('href', url);
+            link.setAttribute('download', `usuarios_${new Date().toISOString().split('T')[0]}.csv`);
+            link.style.visibility = 'hidden';
+            
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            
+            showToast('Sucesso', 'Dados exportados com sucesso!', 'success');
+            
+            exportBtn.innerHTML = '<iconify-icon icon="mdi:download"></iconify-icon> Exportar';
+            exportBtn.disabled = false;
+        }, 1500);
     }
     
     function showToast(title, message, type = 'info') {
@@ -730,7 +1064,10 @@ document.addEventListener("DOMContentLoaded", () => {
         
         // Event listener para fechar
         toast.querySelector('.toast-close').addEventListener('click', () => {
-            toast.remove();
+            toast.style.animation = 'toastSlideOut 0.3s ease forwards';
+            setTimeout(() => {
+                toast.remove();
+            }, 300);
         });
         
         toastContainer.appendChild(toast);
@@ -738,8 +1075,52 @@ document.addEventListener("DOMContentLoaded", () => {
         // Auto remove após 5 segundos
         setTimeout(() => {
             if (toast.parentNode) {
-                toast.remove();
+                toast.style.animation = 'toastSlideOut 0.3s ease forwards';
+                setTimeout(() => {
+                    toast.remove();
+                }, 300);
             }
         }, 5000);
     }
+    
+    // Adicionar estilos de animação dinamicamente
+    const style = document.createElement('style');
+    style.textContent = `
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            10%, 30%, 50%, 70%, 90% { transform: translateX(-5px); }
+            20%, 40%, 60%, 80% { transform: translateX(5px); }
+        }
+        
+        @keyframes ripple {
+            to {
+                transform: scale(2);
+                opacity: 0;
+            }
+        }
+        
+        @keyframes confetti-fall {
+            to {
+                transform: translateY(100vh) rotate(720deg);
+                opacity: 0;
+            }
+        }
+        
+        @keyframes toastSlideOut {
+            to {
+                opacity: 0;
+                transform: translateX(100%) scale(0.9);
+            }
+        }
+        
+        .animate-spin {
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+    `;
+    document.head.appendChild(style);
 });
