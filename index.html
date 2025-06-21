@@ -90,6 +90,16 @@
               <iconify-icon icon="mdi:camera-plus"></iconify-icon>
               <span>Clique para adicionar foto</span>
             </div>
+            <div class="camera-options">
+              <button type="button" id="openCamera" class="camera-btn">
+                <iconify-icon icon="mdi:camera"></iconify-icon>
+                <span>Câmera</span>
+              </button>
+              <button type="button" id="scanQR" class="camera-btn">
+                <iconify-icon icon="mdi:qrcode-scan"></iconify-icon>
+                <span>Escanear QR</span>
+              </button>
+            </div>
           </div>
         </div>
         
@@ -255,9 +265,87 @@
     </div>
   </div>
 
+  <!-- Modal de Câmera -->
+  <div id="cameraModal" class="modal camera-modal">
+    <div class="camera-container">
+      <div class="camera-header">
+        <button id="closeCameraBtn" class="camera-control-btn">
+          <iconify-icon icon="mdi:close"></iconify-icon>
+        </button>
+        <h3 id="cameraTitle">Câmera</h3>
+        <button id="switchCameraBtn" class="camera-control-btn">
+          <iconify-icon icon="mdi:camera-flip"></iconify-icon>
+        </button>
+      </div>
+      
+      <div class="camera-viewport">
+        <video id="cameraVideo" autoplay playsinline></video>
+        <canvas id="cameraCanvas" style="display: none;"></canvas>
+        
+        <!-- Overlay para QR Scanner -->
+        <div id="qrOverlay" class="qr-overlay" style="display: none;">
+          <div class="qr-frame">
+            <div class="qr-corner top-left"></div>
+            <div class="qr-corner top-right"></div>
+            <div class="qr-corner bottom-left"></div>
+            <div class="qr-corner bottom-right"></div>
+          </div>
+          <p class="qr-instruction">Posicione o QR Code dentro do quadro</p>
+        </div>
+      </div>
+      
+      <div class="camera-controls">
+        <button id="flashBtn" class="camera-control-btn">
+          <iconify-icon icon="mdi:flash-off"></iconify-icon>
+        </button>
+        <button id="captureBtn" class="capture-btn">
+          <div class="capture-ring">
+            <div class="capture-inner"></div>
+          </div>
+        </button>
+        <button id="galleryBtn" class="camera-control-btn">
+          <iconify-icon icon="mdi:image"></iconify-icon>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal de Compartilhamento -->
+  <div id="shareModal" class="modal">
+    <div class="modal-content share-modal-content">
+      <div class="modal-header">
+        <h3>Compartilhar Usuário</h3>
+        <button class="modal-close" id="shareModalClose">
+          <iconify-icon icon="mdi:close"></iconify-icon>
+        </button>
+      </div>
+      <div class="modal-body">
+        <div class="share-content">
+          <div class="qr-code-container">
+            <canvas id="qrCodeCanvas"></canvas>
+          </div>
+          <div class="share-info">
+            <h4 id="shareUserName">Nome do Usuário</h4>
+            <p id="shareUserDetails">Detalhes do usuário</p>
+          </div>
+          <div class="share-actions">
+            <button id="downloadQRBtn" class="btn-primary">
+              <iconify-icon icon="mdi:download"></iconify-icon>
+              Baixar QR Code
+            </button>
+            <button id="shareQRBtn" class="btn-secondary">
+              <iconify-icon icon="mdi:share"></iconify-icon>
+              Compartilhar
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Toast Notifications -->
   <div id="toastContainer" class="toast-container"></div>
 
-  <script src="script.js"></script>
+  <script type="module" src="script.js"></script>
 </body>
 </html>

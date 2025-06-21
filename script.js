@@ -1,3 +1,6 @@
+import QRCode from 'qrcode';
+import QrScanner from 'qr-scanner';
+
 document.addEventListener("DOMContentLoaded", () => {
     // Elementos do DOM
     const userForm = document.getElementById("userForm");
@@ -27,11 +30,26 @@ document.addEventListener("DOMContentLoaded", () => {
     // Elementos do modal
     const confirmModal = document.getElementById("confirmModal");
     const editModal = document.getElementById("editModal");
+    const cameraModal = document.getElementById("cameraModal");
+    const shareModal = document.getElementById("shareModal");
     const emptyState = document.getElementById("emptyState");
     
     // Elementos de preview de arquivo
     const fotoInput = document.getElementById("foto");
     const filePreview = document.getElementById("filePreview");
+    
+    // Elementos da câmera
+    const openCameraBtn = document.getElementById("openCamera");
+    const scanQRBtn = document.getElementById("scanQR");
+    const cameraVideo = document.getElementById("cameraVideo");
+    const cameraCanvas = document.getElementById("cameraCanvas");
+    const captureBtn = document.getElementById("captureBtn");
+    const closeCameraBtn = document.getElementById("closeCameraBtn");
+    const switchCameraBtn = document.getElementById("switchCameraBtn");
+    const flashBtn = document.getElementById("flashBtn");
+    const galleryBtn = document.getElementById("galleryBtn");
+    const qrOverlay = document.getElementById("qrOverlay");
+    const cameraTitle = document.getElementById("cameraTitle");
     
     // Estado da aplicação
     let usuarios = [];
@@ -42,6 +60,13 @@ document.addEventListener("DOMContentLoaded", () => {
     let currentSort = 'nome';
     let currentFilter = '';
     let currentSearch = '';
+    
+    // Estado da câmera
+    let currentStream = null;
+    let currentFacingMode = 'user';
+    let isFlashOn = false;
+    let qrScanner = null;
+    let isScanningMode = false;
     
     // Inicialização
     init();
@@ -179,6 +204,15 @@ document.addEventListener("DOMContentLoaded", () => {
         // Preview de arquivo com animação
         fotoInput.addEventListener("change", handleFilePreview);
         
+        // Câmera e QR Code
+        openCameraBtn.addEventListener("click", openCamera);
+        scanQRBtn.addEventListener("click", openQRScanner);
+        captureBtn.addEventListener("click", capturePhoto);
+        closeCameraBtn.addEventListener("click", closeCamera);
+        switchCameraBtn.addEventListener("click", switchCamera);
+        flashBtn.addEventListener("click", toggleFlash);
+        galleryBtn.addEventListener("click", openGallery);
+        
         // Modal events
         setupModalEvents();
         
@@ -239,6 +273,11 @@ document.addEventListener("DOMContentLoaded", () => {
         document.getElementById("editModalCancel").addEventListener("click", closeEditModal);
         document.getElementById("editModalSave").addEventListener("click", handleEditSave);
         
+        // Share Modal
+        document.getElementById("shareModalClose").addEventListener("click", closeShareModal);
+        document.getElementById("downloadQRBtn").addEventListener("click", downloadQRCode);
+        document.getElementById("shareQRBtn").addEventListener("click", shareQRCode);
+        
         // Close modal on backdrop click
         confirmModal.addEventListener("click", (e) => {
             if (e.target === confirmModal) closeConfirmModal();
@@ -246,6 +285,14 @@ document.addEventListener("DOMContentLoaded", () => {
         
         editModal.addEventListener("click", (e) => {
             if (e.target === editModal) closeEditModal();
+        });
+        
+        cameraModal.addEventListener("click", (e) => {
+            if (e.target === cameraModal) closeCamera();
+        });
+        
+        shareModal.addEventListener("click", (e) => {
+            if (e.target === shareModal) closeShareModal();
         });
         
         // Escape key to close modals
@@ -256,6 +303,12 @@ document.addEventListener("DOMContentLoaded", () => {
                 }
                 if (editModal.classList.contains('show')) {
                     closeEditModal();
+                }
+                if (cameraModal.classList.contains('show')) {
+                    closeCamera();
+                }
+                if (shareModal.classList.contains('show')) {
+                    closeShareModal();
                 }
             }
         });
@@ -348,6 +401,348 @@ document.addEventListener("DOMContentLoaded", () => {
     function validateCargo(cargo) {
         if (!cargo) return 'Cargo é obrigatório';
         return '';
+    }
+    
+    // Funções da Câmera
+    async function openCamera() {
+        try {
+            isScanningMode = false;
+            cameraTitle.textContent = 'Câmera';
+            qrOverlay.style.display = 'none';
+            
+            await startCamera();
+            cameraModal.classList.add('show');
+            
+            // Animação de abertura da câmera
+            cameraModal.style.animation = 'cameraModalOpen 0.5s cubic-bezier(0.25, 0.46, 0.45, 0.94)';
+            
+            showToast('Câmera', 'Câmera aberta com sucesso!', 'success');
+        } catch (error) {
+            console.error('Erro ao abrir câmera:', error);
+            showToast('Erro', 'Não foi possível acessar a câmera.', 'error');
+        }
+    }
+    
+    async function openQRScanner() {
+        try {
+            isScanningMode = true;
+            cameraTitle.textContent = 'Scanner QR';
+            qrOverlay.style.display = 'flex';
+            
+            await startCamera();
+            cameraModal.classList.add('show');
+            
+            // Iniciar scanner QR
+            startQRScanner();
+            
+            showToast('Scanner', 'Scanner QR ativado!', 'success');
+        } catch (error) {
+            console.error('Erro ao abrir scanner QR:', error);
+            showToast('Erro', 'Não foi possível acessar a câmera para scanner.', 'error');
+        }
+    }
+    
+    async function startCamera() {
+        try {
+            const constraints = {
+                video: {
+                    facingMode: currentFacingMode,
+                    width: { ideal: 1280 },
+                    height: { ideal: 720 }
+                }
+            };
+            
+            currentStream = await navigator.mediaDevices.getUserMedia(constraints);
+            cameraVideo.srcObject = currentStream;
+            
+            // Aguardar o vídeo carregar
+            await new Promise((resolve) => {
+                cameraVideo.onloadedmetadata = resolve;
+            });
+            
+            // Configurar canvas
+            cameraCanvas.width = cameraVideo.videoWidth;
+            cameraCanvas.height = cameraVideo.videoHeight;
+            
+        } catch (error) {
+            throw new Error('Erro ao acessar câmera: ' + error.message);
+        }
+    }
+    
+    function startQRScanner() {
+        if (qrScanner) {
+            qrScanner.destroy();
+        }
+        
+        qrScanner = new QrScanner(
+            cameraVideo,
+            (result) => {
+                handleQRResult(result.data);
+            },
+            {
+                highlightScanRegion: true,
+                highlightCodeOutline: true,
+                preferredCamera: currentFacingMode === 'user' ? 'front' : 'back'
+            }
+        );
+        
+        qrScanner.start();
+    }
+    
+    function handleQRResult(data) {
+        try {
+            // Tentar parsear como JSON (dados de usuário)
+            const userData = JSON.parse(data);
+            
+            if (userData.nome && userData.email) {
+                // Preencher formulário com dados do QR
+                document.getElementById('nome').value = userData.nome || '';
+                document.getElementById('email').value = userData.email || '';
+                document.getElementById('telefone').value = userData.telefone || '';
+                document.getElementById('cargo').value = userData.cargo || '';
+                
+                closeCamera();
+                showToast('Sucesso', 'Dados do usuário carregados do QR Code!', 'success');
+                
+                // Scroll para o formulário
+                document.getElementById('userForm').scrollIntoView({ 
+                    behavior: 'smooth', 
+                    block: 'start' 
+                });
+            } else {
+                showToast('Aviso', 'QR Code não contém dados de usuário válidos.', 'warning');
+            }
+        } catch (error) {
+            // Se não for JSON, mostrar o conteúdo como texto
+            showToast('QR Code', `Conteúdo: ${data}`, 'info');
+            closeCamera();
+        }
+    }
+    
+    function capturePhoto() {
+        if (!currentStream) return;
+        
+        // Animação do botão de captura
+        captureBtn.style.transform = 'scale(0.9)';
+        setTimeout(() => {
+            captureBtn.style.transform = 'scale(1)';
+        }, 150);
+        
+        // Capturar frame do vídeo
+        const context = cameraCanvas.getContext('2d');
+        context.drawImage(cameraVideo, 0, 0, cameraCanvas.width, cameraCanvas.height);
+        
+        // Converter para blob
+        cameraCanvas.toBlob((blob) => {
+            const file = new File([blob], 'camera-photo.jpg', { type: 'image/jpeg' });
+            
+            // Simular seleção de arquivo
+            const dataTransfer = new DataTransfer();
+            dataTransfer.items.add(file);
+            fotoInput.files = dataTransfer.files;
+            
+            // Atualizar preview
+            const reader = new FileReader();
+            reader.onload = function(event) {
+                filePreview.innerHTML = `<img src="${event.target.result}" alt="Preview">`;
+                filePreview.classList.add('has-image');
+            };
+            reader.readAsDataURL(file);
+            
+            closeCamera();
+            showToast('Sucesso', 'Foto capturada com sucesso!', 'success');
+            
+            // Efeito de flash
+            createFlashEffect();
+        }, 'image/jpeg', 0.9);
+    }
+    
+    function createFlashEffect() {
+        const flash = document.createElement('div');
+        flash.style.cssText = `
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: white;
+            z-index: 9999;
+            pointer-events: none;
+            animation: flashEffect 0.3s ease-out;
+        `;
+        
+        document.body.appendChild(flash);
+        
+        setTimeout(() => {
+            flash.remove();
+        }, 300);
+    }
+    
+    async function switchCamera() {
+        currentFacingMode = currentFacingMode === 'user' ? 'environment' : 'user';
+        
+        // Animação do botão
+        switchCameraBtn.style.transform = 'rotateY(180deg)';
+        setTimeout(() => {
+            switchCameraBtn.style.transform = 'rotateY(0deg)';
+        }, 300);
+        
+        if (currentStream) {
+            currentStream.getTracks().forEach(track => track.stop());
+        }
+        
+        try {
+            await startCamera();
+            if (isScanningMode) {
+                startQRScanner();
+            }
+            showToast('Câmera', 'Câmera alternada!', 'success');
+        } catch (error) {
+            showToast('Erro', 'Não foi possível alternar a câmera.', 'error');
+        }
+    }
+    
+    async function toggleFlash() {
+        try {
+            const track = currentStream.getVideoTracks()[0];
+            const capabilities = track.getCapabilities();
+            
+            if (capabilities.torch) {
+                isFlashOn = !isFlashOn;
+                await track.applyConstraints({
+                    advanced: [{ torch: isFlashOn }]
+                });
+                
+                flashBtn.innerHTML = `<iconify-icon icon="mdi:flash${isFlashOn ? '' : '-off'}"></iconify-icon>`;
+                flashBtn.style.color = isFlashOn ? 'var(--warning-color)' : '';
+                
+                showToast('Flash', `Flash ${isFlashOn ? 'ligado' : 'desligado'}!`, 'info');
+            } else {
+                showToast('Aviso', 'Flash não disponível neste dispositivo.', 'warning');
+            }
+        } catch (error) {
+            showToast('Erro', 'Não foi possível controlar o flash.', 'error');
+        }
+    }
+    
+    function openGallery() {
+        fotoInput.click();
+    }
+    
+    function closeCamera() {
+        if (currentStream) {
+            currentStream.getTracks().forEach(track => track.stop());
+            currentStream = null;
+        }
+        
+        if (qrScanner) {
+            qrScanner.destroy();
+            qrScanner = null;
+        }
+        
+        cameraModal.classList.remove('show');
+        qrOverlay.style.display = 'none';
+        isScanningMode = false;
+        
+        // Reset flash
+        isFlashOn = false;
+        flashBtn.innerHTML = '<iconify-icon icon="mdi:flash-off"></iconify-icon>';
+        flashBtn.style.color = '';
+    }
+    
+    // Funções de Compartilhamento
+    async function shareUser(userId) {
+        const usuario = usuarios.find(u => u.id === userId);
+        if (!usuario) return;
+        
+        try {
+            // Dados para o QR Code
+            const shareData = {
+                nome: usuario.nome,
+                email: usuario.email,
+                telefone: usuario.telefone,
+                cargo: usuario.cargo,
+                dataCadastro: usuario.dataCadastro
+            };
+            
+            // Gerar QR Code
+            const qrCanvas = document.getElementById('qrCodeCanvas');
+            await QRCode.toCanvas(qrCanvas, JSON.stringify(shareData), {
+                width: 256,
+                margin: 2,
+                color: {
+                    dark: '#000000',
+                    light: '#FFFFFF'
+                }
+            });
+            
+            // Atualizar informações do modal
+            document.getElementById('shareUserName').textContent = usuario.nome;
+            document.getElementById('shareUserDetails').textContent = 
+                `${usuario.cargo} • ${usuario.email}`;
+            
+            // Armazenar dados para download/compartilhamento
+            shareModal.dataset.userId = userId;
+            shareModal.dataset.shareData = JSON.stringify(shareData);
+            
+            shareModal.classList.add('show');
+            
+        } catch (error) {
+            console.error('Erro ao gerar QR Code:', error);
+            showToast('Erro', 'Não foi possível gerar o QR Code.', 'error');
+        }
+    }
+    
+    function downloadQRCode() {
+        const canvas = document.getElementById('qrCodeCanvas');
+        const userId = shareModal.dataset.userId;
+        const usuario = usuarios.find(u => u.id == userId);
+        
+        if (canvas && usuario) {
+            const link = document.createElement('a');
+            link.download = `qr-${usuario.nome.replace(/\s+/g, '-').toLowerCase()}.png`;
+            link.href = canvas.toDataURL();
+            link.click();
+            
+            showToast('Sucesso', 'QR Code baixado com sucesso!', 'success');
+        }
+    }
+    
+    async function shareQRCode() {
+        const canvas = document.getElementById('qrCodeCanvas');
+        const userId = shareModal.dataset.userId;
+        const usuario = usuarios.find(u => u.id == userId);
+        
+        if (canvas && usuario) {
+            try {
+                canvas.toBlob(async (blob) => {
+                    const file = new File([blob], `qr-${usuario.nome}.png`, { type: 'image/png' });
+                    
+                    if (navigator.share && navigator.canShare({ files: [file] })) {
+                        await navigator.share({
+                            title: `Dados de ${usuario.nome}`,
+                            text: `QR Code com os dados de ${usuario.nome}`,
+                            files: [file]
+                        });
+                        showToast('Sucesso', 'QR Code compartilhado!', 'success');
+                    } else {
+                        // Fallback: copiar dados para clipboard
+                        const shareData = shareModal.dataset.shareData;
+                        await navigator.clipboard.writeText(shareData);
+                        showToast('Sucesso', 'Dados copiados para a área de transferência!', 'success');
+                    }
+                });
+            } catch (error) {
+                console.error('Erro ao compartilhar:', error);
+                showToast('Erro', 'Não foi possível compartilhar.', 'error');
+            }
+        }
+    }
+    
+    function closeShareModal() {
+        shareModal.classList.remove('show');
+        delete shareModal.dataset.userId;
+        delete shareModal.dataset.shareData;
     }
     
     function carregarUsuarios() {
@@ -509,6 +904,9 @@ document.addEventListener("DOMContentLoaded", () => {
                     <button class="action-btn edit-btn" data-user-id="${usuario.id}">
                         <iconify-icon icon="mdi:pencil"></iconify-icon> Editar
                     </button>
+                    <button class="action-btn share-btn" data-user-id="${usuario.id}">
+                        <iconify-icon icon="mdi:share"></iconify-icon> Compartilhar
+                    </button>
                     <button class="action-btn remove-btn" data-user-id="${usuario.id}">
                         <iconify-icon icon="mdi:delete"></iconify-icon> Remover
                     </button>
@@ -523,6 +921,13 @@ document.addEventListener("DOMContentLoaded", () => {
             btn.addEventListener('click', (e) => {
                 const userId = parseInt(e.currentTarget.dataset.userId);
                 editUser(userId);
+            });
+        });
+        
+        document.querySelectorAll('.share-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const userId = parseInt(e.currentTarget.dataset.userId);
+                shareUser(userId);
             });
         });
         
@@ -1111,6 +1516,28 @@ document.addEventListener("DOMContentLoaded", () => {
                 opacity: 0;
                 transform: translateX(100%) scale(0.9);
             }
+        }
+        
+        @keyframes flashEffect {
+            0% { opacity: 1; }
+            50% { opacity: 0.8; }
+            100% { opacity: 0; }
+        }
+        
+        @keyframes cameraModalOpen {
+            from {
+                opacity: 0;
+                transform: scale(0.9);
+            }
+            to {
+                opacity: 1;
+                transform: scale(1);
+            }
+        }
+        
+        @keyframes qrScan {
+            0%, 100% { transform: translateY(-50%); opacity: 1; }
+            50% { transform: translateY(50%); opacity: 0.5; }
         }
         
         .animate-spin {
