@@ -1,1553 +1,853 @@
+import UserDatabase from './src/database.js';
+import CameraSystem from './src/camera.js';
 import QRCode from 'qrcode';
-import QrScanner from 'qr-scanner';
 
-document.addEventListener("DOMContentLoaded", () => {
-    // Elementos do DOM
-    const userForm = document.getElementById("userForm");
-    const usuariosContainer = document.getElementById("usuariosContainer");
-    const searchInput = document.getElementById("searchInput");
-    const clearSearchBtn = document.getElementById("clearSearch");
-    const cargoFilter = document.getElementById("cargoFilter");
-    const sortBy = document.getElementById("sortBy");
-    const exportBtn = document.getElementById("exportData");
-    const gridViewBtn = document.getElementById("gridView");
-    const listViewBtn = document.getElementById("listView");
-    const itemsPerPageSelect = document.getElementById("itemsPerPageSelect");
-    
-    // Elementos de paginação
-    const firstPageBtn = document.getElementById("firstPage");
-    const prevPageBtn = document.getElementById("prevPage");
-    const nextPageBtn = document.getElementById("nextPage");
-    const lastPageBtn = document.getElementById("lastPage");
-    const pageNumbers = document.getElementById("pageNumbers");
-    const pageInfo = document.getElementById("pageInfo");
-    
-    // Elementos de estatísticas
-    const totalUsersEl = document.getElementById("totalUsers");
-    const newUsersTodayEl = document.getElementById("newUsersToday");
-    const filteredUsersEl = document.getElementById("filteredUsers");
-    
-    // Elementos do modal
-    const confirmModal = document.getElementById("confirmModal");
-    const editModal = document.getElementById("editModal");
-    const cameraModal = document.getElementById("cameraModal");
-    const shareModal = document.getElementById("shareModal");
-    const emptyState = document.getElementById("emptyState");
-    
-    // Elementos de preview de arquivo
-    const fotoInput = document.getElementById("foto");
-    const filePreview = document.getElementById("filePreview");
-    
-    // Elementos da câmera
-    const openCameraBtn = document.getElementById("openCamera");
-    const scanQRBtn = document.getElementById("scanQR");
-    const cameraVideo = document.getElementById("cameraVideo");
-    const cameraCanvas = document.getElementById("cameraCanvas");
-    const captureBtn = document.getElementById("captureBtn");
-    const closeCameraBtn = document.getElementById("closeCameraBtn");
-    const switchCameraBtn = document.getElementById("switchCameraBtn");
-    const flashBtn = document.getElementById("flashBtn");
-    const galleryBtn = document.getElementById("galleryBtn");
-    const qrOverlay = document.getElementById("qrOverlay");
-    const cameraTitle = document.getElementById("cameraTitle");
-    
-    // Estado da aplicação
-    let usuarios = [];
-    let filteredUsuarios = [];
-    let currentPage = 1;
-    let itemsPerPage = 4;
-    let currentView = 'grid';
-    let currentSort = 'nome';
-    let currentFilter = '';
-    let currentSearch = '';
-    
-    // Estado da câmera
-    let currentStream = null;
-    let currentFacingMode = 'user';
-    let isFlashOn = false;
-    let qrScanner = null;
-    let isScanningMode = false;
-    
-    // Inicialização
-    init();
-    
-    function init() {
-        carregarUsuarios();
-        setupEventListeners();
-        updateStats();
-        applyFiltersAndSort();
-        mostrarUsuarios();
-        updatePagination();
-        
-        // Adicionar efeitos de entrada
-        addPageLoadEffects();
+// Sistema de Usuários com banco de dados e câmera personalizada
+class UserSystem {
+  constructor() {
+    this.database = new UserDatabase();
+    this.camera = new CameraSystem();
+    this.usuarios = [];
+    this.usuariosFiltrados = [];
+    this.paginaAtual = 1;
+    this.itensPorPagina = 4;
+    this.modoVisualizacao = 'grid';
+    this.usuarioEditando = null;
+    this.init();
+  }
+
+  async init() {
+    try {
+      // Wait for database initialization
+      await this.database.init();
+      
+      // Populate initial data if needed
+      await this.database.populateInitialData();
+      
+      // Load users from database
+      await this.carregarUsuarios();
+      
+      // Setup camera callbacks
+      this.setupCameraCallbacks();
+      
+      // Setup event listeners
+      this.setupEventListeners();
+      
+      // Initial render
+      this.renderizarUsuarios();
+      this.atualizarEstatisticas();
+      this.atualizarPaginacao();
+      
+      console.log('Sistema inicializado com sucesso!');
+    } catch (error) {
+      console.error('Erro ao inicializar sistema:', error);
+      this.mostrarToast('Erro ao inicializar sistema', 'error');
     }
-    
-    function addPageLoadEffects() {
-        // Animar números das estatísticas
-        animateCounters();
-        
-        // Adicionar efeito de digitação no placeholder da busca
-        addTypingEffect();
-        
-        // Adicionar efeitos de hover nos elementos interativos
-        addHoverEffects();
+  }
+
+  async carregarUsuarios() {
+    try {
+      this.usuarios = await this.database.getAllUsers();
+      this.usuariosFiltrados = [...this.usuarios];
+    } catch (error) {
+      console.error('Erro ao carregar usuários:', error);
+      this.mostrarToast('Erro ao carregar usuários', 'error');
     }
-    
-    function animateCounters() {
-        const counters = [totalUsersEl, newUsersTodayEl, filteredUsersEl];
+  }
+
+  setupCameraCallbacks() {
+    // Handle photo capture
+    this.camera.onCapture((file) => {
+      this.processarFotoCapturada(file);
+    });
+
+    // Handle QR code detection
+    this.camera.onQRDetected((data) => {
+      this.processarQRDetectado(data);
+    });
+  }
+
+  processarFotoCapturada(file) {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const preview = document.getElementById('filePreview');
+      preview.innerHTML = `<img src="${e.target.result}" alt="Foto capturada">`;
+      preview.classList.add('has-image');
+      
+      // Store the file for form submission
+      const fotoInput = document.getElementById('foto');
+      const dataTransfer = new DataTransfer();
+      dataTransfer.items.add(file);
+      fotoInput.files = dataTransfer.files;
+      
+      this.mostrarToast('Foto capturada com sucesso!', 'success');
+    };
+    reader.readAsDataURL(file);
+  }
+
+  processarQRDetectado(data) {
+    try {
+      const userData = JSON.parse(data);
+      if (userData.nome && userData.email) {
+        // Fill form with QR data
+        document.getElementById('nome').value = userData.nome || '';
+        document.getElementById('email').value = userData.email || '';
+        document.getElementById('telefone').value = userData.telefone || '';
+        document.getElementById('cargo').value = userData.cargo || '';
         
-        counters.forEach((counter, index) => {
-            const target = parseInt(counter.textContent) || 0;
-            let current = 0;
-            const increment = target / 30;
-            
-            const timer = setInterval(() => {
-                current += increment;
-                if (current >= target) {
-                    counter.textContent = target;
-                    clearInterval(timer);
-                } else {
-                    counter.textContent = Math.floor(current);
-                }
-            }, 50 + (index * 20));
-        });
+        this.mostrarToast('Dados do QR Code carregados!', 'success');
+      } else {
+        this.mostrarToast('QR Code não contém dados de usuário válidos', 'warning');
+      }
+    } catch (error) {
+      this.mostrarToast('QR Code inválido', 'error');
     }
-    
-    function addTypingEffect() {
-        const placeholder = "Buscar por nome, email ou cargo...";
-        let index = 0;
-        
-        const typeEffect = () => {
-            if (index < placeholder.length) {
-                searchInput.placeholder = placeholder.substring(0, index + 1);
-                index++;
-                setTimeout(typeEffect, 100);
-            }
-        };
-        
-        setTimeout(typeEffect, 2000);
-    }
-    
-    function addHoverEffects() {
-        // Efeito de ripple nos botões
-        document.querySelectorAll('button, .btn-primary, .btn-secondary, .btn-danger, .btn-export').forEach(button => {
-            button.addEventListener('click', createRippleEffect);
-        });
-        
-        // Efeito de shake nos campos com erro
-        document.querySelectorAll('input, select').forEach(input => {
-            input.addEventListener('invalid', (e) => {
-                e.target.style.animation = 'shake 0.5s ease-in-out';
-                setTimeout(() => {
-                    e.target.style.animation = '';
-                }, 500);
-            });
-        });
-    }
-    
-    function createRippleEffect(e) {
-        const button = e.currentTarget;
-        const rect = button.getBoundingClientRect();
-        const size = Math.max(rect.width, rect.height);
-        const x = e.clientX - rect.left - size / 2;
-        const y = e.clientY - rect.top - size / 2;
-        
-        const ripple = document.createElement('span');
-        ripple.style.cssText = `
-            position: absolute;
-            width: ${size}px;
-            height: ${size}px;
-            left: ${x}px;
-            top: ${y}px;
-            background: rgba(255, 255, 255, 0.3);
-            border-radius: 50%;
-            transform: scale(0);
-            animation: ripple 0.6s ease-out;
-            pointer-events: none;
-        `;
-        
-        button.style.position = 'relative';
-        button.style.overflow = 'hidden';
-        button.appendChild(ripple);
-        
-        setTimeout(() => {
-            ripple.remove();
-        }, 600);
-    }
-    
-    function setupEventListeners() {
-        // Formulário principal
-        userForm.addEventListener("submit", handleFormSubmit);
-        document.getElementById("clearForm").addEventListener("click", clearForm);
-        
-        // Busca e filtros com debounce
-        searchInput.addEventListener("input", debounce(handleSearch, 300));
-        clearSearchBtn.addEventListener("click", clearSearch);
-        cargoFilter.addEventListener("change", handleFilter);
-        sortBy.addEventListener("change", handleSort);
-        
-        // Visualização com animação
-        gridViewBtn.addEventListener("click", () => setView('grid'));
-        listViewBtn.addEventListener("click", () => setView('list'));
-        
-        // Paginação
-        firstPageBtn.addEventListener("click", () => goToPage(1));
-        prevPageBtn.addEventListener("click", () => goToPage(currentPage - 1));
-        nextPageBtn.addEventListener("click", () => goToPage(currentPage + 1));
-        lastPageBtn.addEventListener("click", () => goToPage(getTotalPages()));
-        itemsPerPageSelect.addEventListener("change", handleItemsPerPageChange);
-        
-        // Export com animação
-        exportBtn.addEventListener("click", exportData);
-        
-        // Preview de arquivo com animação
-        fotoInput.addEventListener("change", handleFilePreview);
-        
-        // Câmera e QR Code
-        openCameraBtn.addEventListener("click", openCamera);
-        scanQRBtn.addEventListener("click", openQRScanner);
-        captureBtn.addEventListener("click", capturePhoto);
-        closeCameraBtn.addEventListener("click", closeCamera);
-        switchCameraBtn.addEventListener("click", switchCamera);
-        flashBtn.addEventListener("click", toggleFlash);
-        galleryBtn.addEventListener("click", openGallery);
-        
-        // Modal events
-        setupModalEvents();
-        
-        // Validação em tempo real
-        setupRealTimeValidation();
-        
-        // Adicionar efeitos de teclado
-        setupKeyboardEffects();
-    }
-    
-    function debounce(func, wait) {
-        let timeout;
-        return function executedFunction(...args) {
-            const later = () => {
-                clearTimeout(timeout);
-                func(...args);
-            };
-            clearTimeout(timeout);
-            timeout = setTimeout(later, wait);
-        };
-    }
-    
-    function setupKeyboardEffects() {
-        // Efeito de digitação nos inputs
-        document.querySelectorAll('input[type="text"], input[type="email"], textarea').forEach(input => {
-            input.addEventListener('keydown', (e) => {
-                input.style.transform = 'scale(1.01)';
-                setTimeout(() => {
-                    input.style.transform = 'scale(1)';
-                }, 100);
-            });
-        });
-        
-        // Atalhos de teclado
-        document.addEventListener('keydown', (e) => {
-            // Ctrl/Cmd + K para focar na busca
-            if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
-                e.preventDefault();
-                searchInput.focus();
-                searchInput.select();
-            }
-            
-            // Escape para limpar busca
-            if (e.key === 'Escape' && document.activeElement === searchInput) {
-                clearSearch();
-            }
-        });
-    }
-    
-    function setupModalEvents() {
-        // Confirm Modal
-        document.getElementById("modalClose").addEventListener("click", closeConfirmModal);
-        document.getElementById("modalCancel").addEventListener("click", closeConfirmModal);
-        document.getElementById("modalConfirm").addEventListener("click", handleConfirmAction);
-        
-        // Edit Modal
-        document.getElementById("editModalClose").addEventListener("click", closeEditModal);
-        document.getElementById("editModalCancel").addEventListener("click", closeEditModal);
-        document.getElementById("editModalSave").addEventListener("click", handleEditSave);
-        
-        // Share Modal
-        document.getElementById("shareModalClose").addEventListener("click", closeShareModal);
-        document.getElementById("downloadQRBtn").addEventListener("click", downloadQRCode);
-        document.getElementById("shareQRBtn").addEventListener("click", shareQRCode);
-        
-        // Close modal on backdrop click
-        confirmModal.addEventListener("click", (e) => {
-            if (e.target === confirmModal) closeConfirmModal();
-        });
-        
-        editModal.addEventListener("click", (e) => {
-            if (e.target === editModal) closeEditModal();
-        });
-        
-        cameraModal.addEventListener("click", (e) => {
-            if (e.target === cameraModal) closeCamera();
-        });
-        
-        shareModal.addEventListener("click", (e) => {
-            if (e.target === shareModal) closeShareModal();
-        });
-        
-        // Escape key to close modals
-        document.addEventListener('keydown', (e) => {
-            if (e.key === 'Escape') {
-                if (confirmModal.classList.contains('show')) {
-                    closeConfirmModal();
-                }
-                if (editModal.classList.contains('show')) {
-                    closeEditModal();
-                }
-                if (cameraModal.classList.contains('show')) {
-                    closeCamera();
-                }
-                if (shareModal.classList.contains('show')) {
-                    closeShareModal();
-                }
-            }
-        });
-    }
-    
-    function setupRealTimeValidation() {
-        const inputs = [
-            { id: 'nome', validator: validateNome },
-            { id: 'email', validator: validateEmail },
-            { id: 'telefone', validator: validateTelefone },
-            { id: 'cargo', validator: validateCargo }
-        ];
-        
-        inputs.forEach(({ id, validator }) => {
-            const input = document.getElementById(id);
-            const errorEl = document.getElementById(`${id}Error`);
-            
-            input.addEventListener('blur', () => {
-                const error = validator(input.value.trim());
-                showFieldError(errorEl, error, input);
-            });
-            
-            input.addEventListener('input', () => {
-                if (errorEl.textContent) {
-                    const error = validator(input.value.trim());
-                    showFieldError(errorEl, error, input);
-                }
-            });
-            
-            // Efeito visual de validação em tempo real
-            input.addEventListener('input', () => {
-                const isValid = !validator(input.value.trim());
-                input.style.borderColor = isValid ? 'var(--success-color)' : '';
-                
-                if (isValid && input.value.trim()) {
-                    input.style.boxShadow = '0 0 0 3px rgba(52, 199, 89, 0.1)';
-                } else {
-                    input.style.boxShadow = '';
-                }
-            });
-        });
-    }
-    
-    function showFieldError(errorEl, error, input) {
-        errorEl.textContent = error || '';
-        
-        if (error) {
-            input.style.borderColor = 'var(--danger-color)';
-            input.style.animation = 'shake 0.5s ease-in-out';
-            setTimeout(() => {
-                input.style.animation = '';
-            }, 500);
-        } else {
-            input.style.borderColor = '';
+  }
+
+  setupEventListeners() {
+    // Form submission
+    document.getElementById('userForm').addEventListener('submit', (e) => {
+      e.preventDefault();
+      this.adicionarUsuario();
+    });
+
+    // Clear form
+    document.getElementById('clearForm').addEventListener('click', () => {
+      this.limparFormulario();
+    });
+
+    // File input
+    document.getElementById('foto').addEventListener('change', (e) => {
+      this.processarArquivo(e.target.files[0]);
+    });
+
+    // Search functionality
+    document.getElementById('searchInput').addEventListener('input', (e) => {
+      this.buscarUsuarios(e.target.value);
+    });
+
+    // Clear search
+    document.getElementById('clearSearch').addEventListener('click', () => {
+      document.getElementById('searchInput').value = '';
+      this.buscarUsuarios('');
+    });
+
+    // Filters
+    document.getElementById('cargoFilter').addEventListener('change', () => {
+      this.aplicarFiltros();
+    });
+
+    document.getElementById('sortBy').addEventListener('change', () => {
+      this.aplicarFiltros();
+    });
+
+    // View toggle
+    document.getElementById('gridView').addEventListener('click', () => {
+      this.alterarModoVisualizacao('grid');
+    });
+
+    document.getElementById('listView').addEventListener('click', () => {
+      this.alterarModoVisualizacao('list');
+    });
+
+    // Pagination
+    document.getElementById('firstPage').addEventListener('click', () => {
+      this.irParaPagina(1);
+    });
+
+    document.getElementById('prevPage').addEventListener('click', () => {
+      this.irParaPagina(this.paginaAtual - 1);
+    });
+
+    document.getElementById('nextPage').addEventListener('click', () => {
+      this.irParaPagina(this.paginaAtual + 1);
+    });
+
+    document.getElementById('lastPage').addEventListener('click', () => {
+      const totalPaginas = Math.ceil(this.usuariosFiltrados.length / this.itensPorPagina);
+      this.irParaPagina(totalPaginas);
+    });
+
+    document.getElementById('itemsPerPageSelect').addEventListener('change', (e) => {
+      this.itensPorPagina = parseInt(e.target.value);
+      this.paginaAtual = 1;
+      this.renderizarUsuarios();
+      this.atualizarPaginacao();
+    });
+
+    // Export functionality
+    document.getElementById('exportData').addEventListener('click', () => {
+      this.exportarDados();
+    });
+
+    // Modal event listeners
+    this.setupModalEventListeners();
+  }
+
+  setupModalEventListeners() {
+    // Confirmation modal
+    document.getElementById('modalClose').addEventListener('click', () => {
+      this.fecharModal('confirmModal');
+    });
+
+    document.getElementById('modalCancel').addEventListener('click', () => {
+      this.fecharModal('confirmModal');
+    });
+
+    // Edit modal
+    document.getElementById('editModalClose').addEventListener('click', () => {
+      this.fecharModal('editModal');
+    });
+
+    document.getElementById('editModalCancel').addEventListener('click', () => {
+      this.fecharModal('editModal');
+    });
+
+    document.getElementById('editModalSave').addEventListener('click', () => {
+      this.salvarEdicaoUsuario();
+    });
+
+    // Share modal
+    document.getElementById('shareModalClose').addEventListener('click', () => {
+      this.fecharModal('shareModal');
+    });
+
+    document.getElementById('downloadQRBtn').addEventListener('click', () => {
+      this.baixarQRCode();
+    });
+
+    document.getElementById('shareQRBtn').addEventListener('click', () => {
+      this.compartilharQRCode();
+    });
+
+    // Close modals when clicking outside
+    document.querySelectorAll('.modal').forEach(modal => {
+      modal.addEventListener('click', (e) => {
+        if (e.target === modal) {
+          this.fecharModal(modal.id);
         }
+      });
+    });
+  }
+
+  async adicionarUsuario() {
+    try {
+      const formData = this.obterDadosFormulario();
+      
+      if (!this.validarFormulario(formData)) {
+        return;
+      }
+
+      // Add user to database
+      const novoUsuario = await this.database.addUser(formData);
+      
+      // Update local arrays
+      this.usuarios.push(novoUsuario);
+      this.aplicarFiltros();
+      
+      this.limparFormulario();
+      this.renderizarUsuarios();
+      this.atualizarEstatisticas();
+      this.atualizarPaginacao();
+      
+      this.mostrarToast('Usuário cadastrado com sucesso!', 'success');
+    } catch (error) {
+      console.error('Erro ao adicionar usuário:', error);
+      this.mostrarToast('Erro ao cadastrar usuário', 'error');
     }
+  }
+
+  obterDadosFormulario() {
+    const fotoInput = document.getElementById('foto');
+    let fotoUrl = 'https://images.pexels.com/photos/1040880/pexels-photo-1040880.jpeg?auto=compress&cs=tinysrgb&w=150&h=150&fit=crop';
     
-    // Validadores
-    function validateNome(nome) {
-        if (!nome) return 'Nome é obrigatório';
-        if (nome.length < 2) return 'Nome deve ter pelo menos 2 caracteres';
-        if (nome.length > 100) return 'Nome deve ter no máximo 100 caracteres';
-        if (!/^[a-zA-ZÀ-ÿ\s]+$/.test(nome)) return 'Nome deve conter apenas letras e espaços';
-        return '';
+    if (fotoInput.files && fotoInput.files[0]) {
+      fotoUrl = URL.createObjectURL(fotoInput.files[0]);
     }
+
+    return {
+      nome: document.getElementById('nome').value.trim(),
+      email: document.getElementById('email').value.trim(),
+      telefone: document.getElementById('telefone').value.trim(),
+      cargo: document.getElementById('cargo').value,
+      foto: fotoUrl
+    };
+  }
+
+  validarFormulario(dados) {
+    let valido = true;
     
-    function validateEmail(email) {
-        if (!email) return 'Email é obrigatório';
-        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-        if (!emailRegex.test(email)) return 'Email inválido';
-        if (email.length > 255) return 'Email muito longo';
-        
-        // Verificar se email já existe (exceto na edição)
-        const existingUser = usuarios.find(u => u.email.toLowerCase() === email.toLowerCase());
-        const editingUserId = document.getElementById("editUserId")?.value;
-        if (existingUser && existingUser.id != editingUserId) {
-            return 'Este email já está cadastrado';
-        }
-        
-        return '';
+    // Clear previous errors
+    document.querySelectorAll('.error-message').forEach(error => {
+      error.textContent = '';
+    });
+
+    // Validate name
+    if (!dados.nome || dados.nome.length < 2) {
+      document.getElementById('nomeError').textContent = 'Nome deve ter pelo menos 2 caracteres';
+      valido = false;
     }
-    
-    function validateTelefone(telefone) {
-        if (!telefone) return 'Telefone é obrigatório';
-        const phoneRegex = /^\(?\d{2}\)?\s?\d{4,5}-?\d{4}$/;
-        if (!phoneRegex.test(telefone)) return 'Formato inválido. Use: (11) 99999-9999';
-        return '';
+
+    // Validate email
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!dados.email || !emailRegex.test(dados.email)) {
+      document.getElementById('emailError').textContent = 'Email inválido';
+      valido = false;
     }
-    
-    function validateCargo(cargo) {
-        if (!cargo) return 'Cargo é obrigatório';
-        return '';
+
+    // Check if email already exists
+    if (this.usuarios.some(user => user.email === dados.email && (!this.usuarioEditando || user.id !== this.usuarioEditando.id))) {
+      document.getElementById('emailError').textContent = 'Este email já está cadastrado';
+      valido = false;
     }
-    
-    // Funções da Câmera
-    async function openCamera() {
-        try {
-            isScanningMode = false;
-            cameraTitle.textContent = 'Câmera';
-            qrOverlay.style.display = 'none';
-            
-            await startCamera();
-            cameraModal.classList.add('show');
-            
-            // Animação de abertura da câmera
-            cameraModal.style.animation = 'cameraModalOpen 0.5s cubic-bezier(0.25, 0.46, 0.45, 0.94)';
-            
-            showToast('Câmera', 'Câmera aberta com sucesso!', 'success');
-        } catch (error) {
-            console.error('Erro ao abrir câmera:', error);
-            showToast('Erro', 'Não foi possível acessar a câmera.', 'error');
-        }
+
+    // Validate phone
+    const telefoneRegex = /^\(\d{2}\)\s\d{4,5}-\d{4}$/;
+    if (!dados.telefone || !telefoneRegex.test(dados.telefone)) {
+      document.getElementById('telefoneError').textContent = 'Telefone deve estar no formato (11) 99999-9999';
+      valido = false;
     }
-    
-    async function openQRScanner() {
-        try {
-            isScanningMode = true;
-            cameraTitle.textContent = 'Scanner QR';
-            qrOverlay.style.display = 'flex';
-            
-            await startCamera();
-            cameraModal.classList.add('show');
-            
-            // Iniciar scanner QR
-            startQRScanner();
-            
-            showToast('Scanner', 'Scanner QR ativado!', 'success');
-        } catch (error) {
-            console.error('Erro ao abrir scanner QR:', error);
-            showToast('Erro', 'Não foi possível acessar a câmera para scanner.', 'error');
-        }
+
+    // Validate position
+    if (!dados.cargo) {
+      document.getElementById('cargoError').textContent = 'Selecione um cargo';
+      valido = false;
     }
-    
-    async function startCamera() {
-        try {
-            const constraints = {
-                video: {
-                    facingMode: currentFacingMode,
-                    width: { ideal: 1280 },
-                    height: { ideal: 720 }
-                }
-            };
-            
-            currentStream = await navigator.mediaDevices.getUserMedia(constraints);
-            cameraVideo.srcObject = currentStream;
-            
-            // Aguardar o vídeo carregar
-            await new Promise((resolve) => {
-                cameraVideo.onloadedmetadata = resolve;
-            });
-            
-            // Configurar canvas
-            cameraCanvas.width = cameraVideo.videoWidth;
-            cameraCanvas.height = cameraVideo.videoHeight;
-            
-        } catch (error) {
-            throw new Error('Erro ao acessar câmera: ' + error.message);
-        }
+
+    return valido;
+  }
+
+  processarArquivo(arquivo) {
+    if (!arquivo) return;
+
+    if (!arquivo.type.startsWith('image/')) {
+      this.mostrarToast('Por favor, selecione apenas arquivos de imagem', 'error');
+      return;
     }
-    
-    function startQRScanner() {
-        if (qrScanner) {
-            qrScanner.destroy();
-        }
-        
-        qrScanner = new QrScanner(
-            cameraVideo,
-            (result) => {
-                handleQRResult(result.data);
-            },
-            {
-                highlightScanRegion: true,
-                highlightCodeOutline: true,
-                preferredCamera: currentFacingMode === 'user' ? 'front' : 'back'
-            }
-        );
-        
-        qrScanner.start();
+
+    if (arquivo.size > 5 * 1024 * 1024) {
+      this.mostrarToast('A imagem deve ter no máximo 5MB', 'error');
+      return;
     }
-    
-    function handleQRResult(data) {
-        try {
-            // Tentar parsear como JSON (dados de usuário)
-            const userData = JSON.parse(data);
-            
-            if (userData.nome && userData.email) {
-                // Preencher formulário com dados do QR
-                document.getElementById('nome').value = userData.nome || '';
-                document.getElementById('email').value = userData.email || '';
-                document.getElementById('telefone').value = userData.telefone || '';
-                document.getElementById('cargo').value = userData.cargo || '';
-                
-                closeCamera();
-                showToast('Sucesso', 'Dados do usuário carregados do QR Code!', 'success');
-                
-                // Scroll para o formulário
-                document.getElementById('userForm').scrollIntoView({ 
-                    behavior: 'smooth', 
-                    block: 'start' 
-                });
-            } else {
-                showToast('Aviso', 'QR Code não contém dados de usuário válidos.', 'warning');
-            }
-        } catch (error) {
-            // Se não for JSON, mostrar o conteúdo como texto
-            showToast('QR Code', `Conteúdo: ${data}`, 'info');
-            closeCamera();
-        }
-    }
-    
-    function capturePhoto() {
-        if (!currentStream) return;
-        
-        // Animação do botão de captura
-        captureBtn.style.transform = 'scale(0.9)';
-        setTimeout(() => {
-            captureBtn.style.transform = 'scale(1)';
-        }, 150);
-        
-        // Capturar frame do vídeo
-        const context = cameraCanvas.getContext('2d');
-        context.drawImage(cameraVideo, 0, 0, cameraCanvas.width, cameraCanvas.height);
-        
-        // Converter para blob
-        cameraCanvas.toBlob((blob) => {
-            const file = new File([blob], 'camera-photo.jpg', { type: 'image/jpeg' });
-            
-            // Simular seleção de arquivo
-            const dataTransfer = new DataTransfer();
-            dataTransfer.items.add(file);
-            fotoInput.files = dataTransfer.files;
-            
-            // Atualizar preview
-            const reader = new FileReader();
-            reader.onload = function(event) {
-                filePreview.innerHTML = `<img src="${event.target.result}" alt="Preview">`;
-                filePreview.classList.add('has-image');
-            };
-            reader.readAsDataURL(file);
-            
-            closeCamera();
-            showToast('Sucesso', 'Foto capturada com sucesso!', 'success');
-            
-            // Efeito de flash
-            createFlashEffect();
-        }, 'image/jpeg', 0.9);
-    }
-    
-    function createFlashEffect() {
-        const flash = document.createElement('div');
-        flash.style.cssText = `
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100vw;
-            height: 100vh;
-            background: white;
-            z-index: 9999;
-            pointer-events: none;
-            animation: flashEffect 0.3s ease-out;
-        `;
-        
-        document.body.appendChild(flash);
-        
-        setTimeout(() => {
-            flash.remove();
-        }, 300);
-    }
-    
-    async function switchCamera() {
-        currentFacingMode = currentFacingMode === 'user' ? 'environment' : 'user';
-        
-        // Animação do botão
-        switchCameraBtn.style.transform = 'rotateY(180deg)';
-        setTimeout(() => {
-            switchCameraBtn.style.transform = 'rotateY(0deg)';
-        }, 300);
-        
-        if (currentStream) {
-            currentStream.getTracks().forEach(track => track.stop());
-        }
-        
-        try {
-            await startCamera();
-            if (isScanningMode) {
-                startQRScanner();
-            }
-            showToast('Câmera', 'Câmera alternada!', 'success');
-        } catch (error) {
-            showToast('Erro', 'Não foi possível alternar a câmera.', 'error');
-        }
-    }
-    
-    async function toggleFlash() {
-        try {
-            const track = currentStream.getVideoTracks()[0];
-            const capabilities = track.getCapabilities();
-            
-            if (capabilities.torch) {
-                isFlashOn = !isFlashOn;
-                await track.applyConstraints({
-                    advanced: [{ torch: isFlashOn }]
-                });
-                
-                flashBtn.innerHTML = `<iconify-icon icon="mdi:flash${isFlashOn ? '' : '-off'}"></iconify-icon>`;
-                flashBtn.style.color = isFlashOn ? 'var(--warning-color)' : '';
-                
-                showToast('Flash', `Flash ${isFlashOn ? 'ligado' : 'desligado'}!`, 'info');
-            } else {
-                showToast('Aviso', 'Flash não disponível neste dispositivo.', 'warning');
-            }
-        } catch (error) {
-            showToast('Erro', 'Não foi possível controlar o flash.', 'error');
-        }
-    }
-    
-    function openGallery() {
-        fotoInput.click();
-    }
-    
-    function closeCamera() {
-        if (currentStream) {
-            currentStream.getTracks().forEach(track => track.stop());
-            currentStream = null;
-        }
-        
-        if (qrScanner) {
-            qrScanner.destroy();
-            qrScanner = null;
-        }
-        
-        cameraModal.classList.remove('show');
-        qrOverlay.style.display = 'none';
-        isScanningMode = false;
-        
-        // Reset flash
-        isFlashOn = false;
-        flashBtn.innerHTML = '<iconify-icon icon="mdi:flash-off"></iconify-icon>';
-        flashBtn.style.color = '';
-    }
-    
-    // Funções de Compartilhamento
-    async function shareUser(userId) {
-        const usuario = usuarios.find(u => u.id === userId);
-        if (!usuario) return;
-        
-        try {
-            // Dados para o QR Code
-            const shareData = {
-                nome: usuario.nome,
-                email: usuario.email,
-                telefone: usuario.telefone,
-                cargo: usuario.cargo,
-                dataCadastro: usuario.dataCadastro
-            };
-            
-            // Gerar QR Code
-            const qrCanvas = document.getElementById('qrCodeCanvas');
-            await QRCode.toCanvas(qrCanvas, JSON.stringify(shareData), {
-                width: 256,
-                margin: 2,
-                color: {
-                    dark: '#000000',
-                    light: '#FFFFFF'
-                }
-            });
-            
-            // Atualizar informações do modal
-            document.getElementById('shareUserName').textContent = usuario.nome;
-            document.getElementById('shareUserDetails').textContent = 
-                `${usuario.cargo} • ${usuario.email}`;
-            
-            // Armazenar dados para download/compartilhamento
-            shareModal.dataset.userId = userId;
-            shareModal.dataset.shareData = JSON.stringify(shareData);
-            
-            shareModal.classList.add('show');
-            
-        } catch (error) {
-            console.error('Erro ao gerar QR Code:', error);
-            showToast('Erro', 'Não foi possível gerar o QR Code.', 'error');
-        }
-    }
-    
-    function downloadQRCode() {
-        const canvas = document.getElementById('qrCodeCanvas');
-        const userId = shareModal.dataset.userId;
-        const usuario = usuarios.find(u => u.id == userId);
-        
-        if (canvas && usuario) {
-            const link = document.createElement('a');
-            link.download = `qr-${usuario.nome.replace(/\s+/g, '-').toLowerCase()}.png`;
-            link.href = canvas.toDataURL();
-            link.click();
-            
-            showToast('Sucesso', 'QR Code baixado com sucesso!', 'success');
-        }
-    }
-    
-    async function shareQRCode() {
-        const canvas = document.getElementById('qrCodeCanvas');
-        const userId = shareModal.dataset.userId;
-        const usuario = usuarios.find(u => u.id == userId);
-        
-        if (canvas && usuario) {
-            try {
-                canvas.toBlob(async (blob) => {
-                    const file = new File([blob], `qr-${usuario.nome}.png`, { type: 'image/png' });
-                    
-                    if (navigator.share && navigator.canShare({ files: [file] })) {
-                        await navigator.share({
-                            title: `Dados de ${usuario.nome}`,
-                            text: `QR Code com os dados de ${usuario.nome}`,
-                            files: [file]
-                        });
-                        showToast('Sucesso', 'QR Code compartilhado!', 'success');
-                    } else {
-                        // Fallback: copiar dados para clipboard
-                        const shareData = shareModal.dataset.shareData;
-                        await navigator.clipboard.writeText(shareData);
-                        showToast('Sucesso', 'Dados copiados para a área de transferência!', 'success');
-                    }
-                });
-            } catch (error) {
-                console.error('Erro ao compartilhar:', error);
-                showToast('Erro', 'Não foi possível compartilhar.', 'error');
-            }
-        }
-    }
-    
-    function closeShareModal() {
-        shareModal.classList.remove('show');
-        delete shareModal.dataset.userId;
-        delete shareModal.dataset.shareData;
-    }
-    
-    function carregarUsuarios() {
-        const stored = localStorage.getItem("usuarios");
-        if (stored) {
-            usuarios = JSON.parse(stored);
-        } else {
-            // Dados iniciais mais realistas
-            usuarios = [
-                {
-                    id: 1,
-                    nome: "Ana Silva Santos",
-                    email: "ana.santos@empresa.com",
-                    telefone: "(11) 98765-4321",
-                    cargo: "Desenvolvedor",
-                    foto: "https://images.pexels.com/photos/774909/pexels-photo-774909.jpeg?auto=compress&cs=tinysrgb&w=150&h=150&fit=crop",
-                    dataCadastro: new Date().toISOString()
-                },
-                {
-                    id: 2,
-                    nome: "Carlos Eduardo Lima",
-                    email: "carlos.lima@empresa.com",
-                    telefone: "(21) 99876-5432",
-                    cargo: "Designer",
-                    foto: "https://images.pexels.com/photos/1222271/pexels-photo-1222271.jpeg?auto=compress&cs=tinysrgb&w=150&h=150&fit=crop",
-                    dataCadastro: new Date().toISOString()
-                },
-                {
-                    id: 3,
-                    nome: "Mariana Costa Oliveira",
-                    email: "mariana.oliveira@empresa.com",
-                    telefone: "(31) 97654-3210",
-                    cargo: "Gerente",
-                    foto: "https://images.pexels.com/photos/1239291/pexels-photo-1239291.jpeg?auto=compress&cs=tinysrgb&w=150&h=150&fit=crop",
-                    dataCadastro: new Date().toISOString()
-                }
-            ];
-            salvarUsuarios();
-        }
-    }
-    
-    function salvarUsuarios() {
-        localStorage.setItem("usuarios", JSON.stringify(usuarios));
-        updateStats();
-    }
-    
-    function updateStats() {
-        const today = new Date().toDateString();
-        const newToday = usuarios.filter(u => 
-            new Date(u.dataCadastro).toDateString() === today
-        ).length;
-        
-        // Animar mudanças nos números
-        animateNumberChange(totalUsersEl, usuarios.length);
-        animateNumberChange(newUsersTodayEl, newToday);
-        animateNumberChange(filteredUsersEl, filteredUsuarios.length);
-    }
-    
-    function animateNumberChange(element, newValue) {
-        const currentValue = parseInt(element.textContent) || 0;
-        if (currentValue === newValue) return;
-        
-        const duration = 500;
-        const steps = 20;
-        const stepValue = (newValue - currentValue) / steps;
-        let current = currentValue;
-        let step = 0;
-        
-        const timer = setInterval(() => {
-            step++;
-            current += stepValue;
-            
-            if (step >= steps) {
-                element.textContent = newValue;
-                clearInterval(timer);
-            } else {
-                element.textContent = Math.round(current);
-            }
-        }, duration / steps);
-    }
-    
-    function applyFiltersAndSort() {
-        let result = [...usuarios];
-        
-        // Aplicar busca
-        if (currentSearch) {
-            result = result.filter(u =>
-                u.nome.toLowerCase().includes(currentSearch.toLowerCase()) ||
-                u.email.toLowerCase().includes(currentSearch.toLowerCase()) ||
-                u.cargo.toLowerCase().includes(currentSearch.toLowerCase())
-            );
-        }
-        
-        // Aplicar filtro de cargo
-        if (currentFilter) {
-            result = result.filter(u => u.cargo === currentFilter);
-        }
-        
-        // Aplicar ordenação
-        result.sort((a, b) => {
-            switch (currentSort) {
-                case 'nome':
-                    return a.nome.localeCompare(b.nome);
-                case 'email':
-                    return a.email.localeCompare(b.email);
-                case 'cargo':
-                    return a.cargo.localeCompare(b.cargo);
-                case 'data':
-                    return new Date(b.dataCadastro) - new Date(a.dataCadastro);
-                default:
-                    return 0;
-            }
-        });
-        
-        filteredUsuarios = result;
-        updateStats();
-        
-        // Ajustar página atual se necessário
-        const totalPages = getTotalPages();
-        if (currentPage > totalPages && totalPages > 0) {
-            currentPage = totalPages;
-        } else if (currentPage < 1) {
-            currentPage = 1;
-        }
-    }
-    
-    function mostrarUsuarios() {
-        usuariosContainer.innerHTML = "";
-        usuariosContainer.className = currentView === 'grid' ? 'usuarios-grid' : 'usuarios-list';
-        
-        if (filteredUsuarios.length === 0) {
-            emptyState.style.display = 'block';
-            return;
-        }
-        
-        emptyState.style.display = 'none';
-        
-        const startIndex = (currentPage - 1) * itemsPerPage;
-        const paginatedUsers = filteredUsuarios.slice(startIndex, startIndex + itemsPerPage);
-        
-        paginatedUsers.forEach((usuario, index) => {
-            const div = document.createElement("div");
-            div.className = `usuario-card ${currentView === 'list' ? 'list-view' : ''}`;
-            div.style.animationDelay = `${index * 0.1}s`;
-            
-            const dataFormatada = new Date(usuario.dataCadastro).toLocaleDateString('pt-BR');
-            
-            div.innerHTML = `
-                <img src="${usuario.foto}" alt="Foto de ${usuario.nome}" 
-                     onerror="this.src='https://images.pexels.com/photos/1300402/pexels-photo-1300402.jpeg?auto=compress&cs=tinysrgb&w=150&h=150&fit=crop'">
-                <div class="usuario-info">
-                    <h3>${usuario.nome}</h3>
-                    <p><iconify-icon icon="mdi:email"></iconify-icon> ${usuario.email}</p>
-                    <p><iconify-icon icon="mdi:phone"></iconify-icon> ${usuario.telefone}</p>
-                    <p><iconify-icon icon="mdi:calendar"></iconify-icon> Cadastrado em ${dataFormatada}</p>
-                    <span class="cargo">${usuario.cargo}</span>
-                </div>
-                <div class="usuario-actions">
-                    <button class="action-btn edit-btn" data-user-id="${usuario.id}">
-                        <iconify-icon icon="mdi:pencil"></iconify-icon> Editar
-                    </button>
-                    <button class="action-btn share-btn" data-user-id="${usuario.id}">
-                        <iconify-icon icon="mdi:share"></iconify-icon> Compartilhar
-                    </button>
-                    <button class="action-btn remove-btn" data-user-id="${usuario.id}">
-                        <iconify-icon icon="mdi:delete"></iconify-icon> Remover
-                    </button>
-                </div>
-            `;
-            
-            usuariosContainer.appendChild(div);
-        });
-        
-        // Adicionar event listeners para os botões
-        document.querySelectorAll('.edit-btn').forEach(btn => {
-            btn.addEventListener('click', (e) => {
-                const userId = parseInt(e.currentTarget.dataset.userId);
-                editUser(userId);
-            });
-        });
-        
-        document.querySelectorAll('.share-btn').forEach(btn => {
-            btn.addEventListener('click', (e) => {
-                const userId = parseInt(e.currentTarget.dataset.userId);
-                shareUser(userId);
-            });
-        });
-        
-        document.querySelectorAll('.remove-btn').forEach(btn => {
-            btn.addEventListener('click', (e) => {
-                const userId = parseInt(e.currentTarget.dataset.userId);
-                confirmRemoveUser(userId);
-            });
-        });
-        
-        // Adicionar efeito de hover nos cards
-        document.querySelectorAll('.usuario-card').forEach(card => {
-            card.addEventListener('mouseenter', () => {
-                card.style.transform = currentView === 'grid' ? 'translateY(-8px) scale(1.02)' : 'translateX(8px)';
-            });
-            
-            card.addEventListener('mouseleave', () => {
-                card.style.transform = 'none';
-            });
-        });
-    }
-    
-    function updatePagination() {
-        const totalPages = getTotalPages();
-        
-        // Atualizar botões de navegação
-        firstPageBtn.disabled = currentPage === 1;
-        prevPageBtn.disabled = currentPage === 1;
-        nextPageBtn.disabled = currentPage === totalPages || totalPages === 0;
-        lastPageBtn.disabled = currentPage === totalPages || totalPages === 0;
-        
-        // Atualizar números das páginas
-        pageNumbers.innerHTML = '';
-        
-        if (totalPages <= 7) {
-            // Mostrar todas as páginas
-            for (let i = 1; i <= totalPages; i++) {
-                createPageButton(i);
-            }
-        } else {
-            // Mostrar páginas com ellipsis
-            createPageButton(1);
-            
-            if (currentPage > 4) {
-                createEllipsis();
-            }
-            
-            const start = Math.max(2, currentPage - 2);
-            const end = Math.min(totalPages - 1, currentPage + 2);
-            
-            for (let i = start; i <= end; i++) {
-                createPageButton(i);
-            }
-            
-            if (currentPage < totalPages - 3) {
-                createEllipsis();
-            }
-            
-            if (totalPages > 1) {
-                createPageButton(totalPages);
-            }
-        }
-        
-        // Atualizar informações da página
-        pageInfo.textContent = totalPages > 0 
-            ? `Página ${currentPage} de ${totalPages}` 
-            : 'Nenhum resultado';
-    }
-    
-    function createPageButton(pageNum) {
-        const btn = document.createElement('button');
-        btn.textContent = pageNum;
-        btn.className = currentPage === pageNum ? 'active' : '';
-        btn.addEventListener('click', () => goToPage(pageNum));
-        pageNumbers.appendChild(btn);
-    }
-    
-    function createEllipsis() {
-        const span = document.createElement('span');
-        span.textContent = '...';
-        span.style.padding = '8px';
-        span.style.color = 'var(--text-secondary)';
-        pageNumbers.appendChild(span);
-    }
-    
-    function getTotalPages() {
-        return Math.ceil(filteredUsuarios.length / itemsPerPage);
-    }
-    
-    function goToPage(page) {
-        const totalPages = getTotalPages();
-        if (page >= 1 && page <= totalPages) {
-            currentPage = page;
-            mostrarUsuarios();
-            updatePagination();
-            
-            // Scroll suave para o topo da lista
-            usuariosContainer.scrollIntoView({ 
-                behavior: 'smooth', 
-                block: 'start' 
-            });
-        }
-    }
-    
-    function handleFormSubmit(e) {
-        e.preventDefault();
-        
-        const formData = {
-            nome: document.getElementById("nome").value.trim(),
-            email: document.getElementById("email").value.trim(),
-            telefone: document.getElementById("telefone").value.trim(),
-            cargo: document.getElementById("cargo").value,
-            foto: fotoInput.files?.[0]
-        };
-        
-        // Validar todos os campos
-        const errors = {
-            nome: validateNome(formData.nome),
-            email: validateEmail(formData.email),
-            telefone: validateTelefone(formData.telefone),
-            cargo: validateCargo(formData.cargo)
-        };
-        
-        // Mostrar erros
-        Object.keys(errors).forEach(field => {
-            const errorEl = document.getElementById(`${field}Error`);
-            const input = document.getElementById(field);
-            showFieldError(errorEl, errors[field], input);
-        });
-        
-        // Se há erros, não prosseguir
-        if (Object.values(errors).some(error => error)) {
-            showToast('Erro', 'Por favor, corrija os erros no formulário.', 'error');
-            return;
-        }
-        
-        // Adicionar loading ao botão
-        const submitBtn = e.target.querySelector('button[type="submit"]');
-        const originalText = submitBtn.innerHTML;
-        submitBtn.innerHTML = '<iconify-icon icon="mdi:loading" class="animate-spin"></iconify-icon> Salvando...';
-        submitBtn.disabled = true;
-        
-        // Processar foto
-        if (formData.foto) {
-            const reader = new FileReader();
-            reader.onload = function(event) {
-                setTimeout(() => {
-                    saveUser({
-                        ...formData,
-                        foto: event.target.result
-                    });
-                    submitBtn.innerHTML = originalText;
-                    submitBtn.disabled = false;
-                }, 1000); // Simular delay de processamento
-            };
-            reader.readAsDataURL(formData.foto);
-        } else {
-            setTimeout(() => {
-                saveUser({
-                    ...formData,
-                    foto: "https://images.pexels.com/photos/1300402/pexels-photo-1300402.jpeg?auto=compress&cs=tinysrgb&w=150&h=150&fit=crop"
-                });
-                submitBtn.innerHTML = originalText;
-                submitBtn.disabled = false;
-            }, 1000);
-        }
-    }
-    
-    function saveUser(userData) {
-        const novoUsuario = {
-            id: Date.now(),
-            ...userData,
-            dataCadastro: new Date().toISOString()
-        };
-        
-        usuarios.unshift(novoUsuario);
-        salvarUsuarios();
-        applyFiltersAndSort();
-        mostrarUsuarios();
-        updatePagination();
-        clearForm();
-        
-        showToast('Sucesso', 'Usuário cadastrado com sucesso!', 'success');
-        
-        // Ir para a primeira página para mostrar o novo usuário
-        goToPage(1);
-        
-        // Efeito de confetti
-        createConfettiEffect();
-    }
-    
-    function createConfettiEffect() {
-        const colors = ['#007AFF', '#34C759', '#FF9500', '#FF3B30'];
-        const confettiCount = 50;
-        
-        for (let i = 0; i < confettiCount; i++) {
-            const confetti = document.createElement('div');
-            confetti.style.cssText = `
-                position: fixed;
-                width: 10px;
-                height: 10px;
-                background: ${colors[Math.floor(Math.random() * colors.length)]};
-                left: ${Math.random() * 100}vw;
-                top: -10px;
-                border-radius: 50%;
-                pointer-events: none;
-                z-index: 9999;
-                animation: confetti-fall ${2 + Math.random() * 3}s linear forwards;
-            `;
-            
-            document.body.appendChild(confetti);
-            
-            setTimeout(() => {
-                confetti.remove();
-            }, 5000);
-        }
-    }
-    
-    function clearForm() {
-        userForm.reset();
-        
-        // Limpar preview da foto com animação
-        filePreview.style.transform = 'scale(0.9)';
-        filePreview.style.opacity = '0.5';
-        
-        setTimeout(() => {
-            filePreview.innerHTML = `
-                <iconify-icon icon="mdi:camera-plus"></iconify-icon>
-                <span>Clique para adicionar foto</span>
-            `;
-            filePreview.classList.remove('has-image');
-            filePreview.style.transform = 'scale(1)';
-            filePreview.style.opacity = '1';
-        }, 200);
-        
-        // Limpar erros
-        document.querySelectorAll('.error-message').forEach(el => {
-            el.textContent = '';
-        });
-        
-        // Resetar estilos dos campos
-        document.querySelectorAll('input, select').forEach(el => {
-            el.style.borderColor = '';
-            el.style.boxShadow = '';
-        });
-    }
-    
-    function handleFilePreview(e) {
-        const file = e.target.files[0];
-        if (file) {
-            if (file.size > 5 * 1024 * 1024) { // 5MB
-                showToast('Erro', 'Arquivo muito grande. Máximo 5MB.', 'error');
-                e.target.value = '';
-                return;
-            }
-            
-            if (!file.type.startsWith('image/')) {
-                showToast('Erro', 'Por favor, selecione apenas imagens.', 'error');
-                e.target.value = '';
-                return;
-            }
-            
-            // Animação de loading
-            filePreview.innerHTML = `
-                <iconify-icon icon="mdi:loading" class="animate-spin"></iconify-icon>
-                <span>Carregando...</span>
-            `;
-            
-            const reader = new FileReader();
-            reader.onload = function(event) {
-                setTimeout(() => {
-                    filePreview.innerHTML = `<img src="${event.target.result}" alt="Preview">`;
-                    filePreview.classList.add('has-image');
-                }, 500);
-            };
-            reader.readAsDataURL(file);
-        }
-    }
-    
-    function handleSearch(e) {
-        currentSearch = e.target.value.trim();
-        clearSearchBtn.classList.toggle('show', currentSearch.length > 0);
-        currentPage = 1;
-        applyFiltersAndSort();
-        mostrarUsuarios();
-        updatePagination();
-        
-        // Efeito visual de busca
-        if (currentSearch) {
-            searchInput.style.background = 'rgba(0, 122, 255, 0.05)';
-        } else {
-            searchInput.style.background = '';
-        }
-    }
-    
-    function clearSearch() {
-        searchInput.value = '';
-        currentSearch = '';
-        clearSearchBtn.classList.remove('show');
-        searchInput.style.background = '';
-        currentPage = 1;
-        applyFiltersAndSort();
-        mostrarUsuarios();
-        updatePagination();
-        
-        // Efeito de limpeza
-        searchInput.style.transform = 'scale(1.05)';
-        setTimeout(() => {
-            searchInput.style.transform = 'scale(1)';
-        }, 150);
-    }
-    
-    function handleFilter(e) {
-        currentFilter = e.target.value;
-        currentPage = 1;
-        applyFiltersAndSort();
-        mostrarUsuarios();
-        updatePagination();
-        
-        // Efeito visual no filtro
-        e.target.style.transform = 'scale(1.02)';
-        setTimeout(() => {
-            e.target.style.transform = 'scale(1)';
-        }, 150);
-    }
-    
-    function handleSort(e) {
-        currentSort = e.target.value;
-        applyFiltersAndSort();
-        mostrarUsuarios();
-        updatePagination();
-        
-        // Efeito visual na ordenação
-        e.target.style.transform = 'scale(1.02)';
-        setTimeout(() => {
-            e.target.style.transform = 'scale(1)';
-        }, 150);
-    }
-    
-    function setView(view) {
-        currentView = view;
-        gridViewBtn.classList.toggle('active', view === 'grid');
-        listViewBtn.classList.toggle('active', view === 'list');
-        
-        // Animação de transição entre views
-        usuariosContainer.style.opacity = '0';
-        usuariosContainer.style.transform = 'scale(0.95)';
-        
-        setTimeout(() => {
-            mostrarUsuarios();
-            usuariosContainer.style.opacity = '1';
-            usuariosContainer.style.transform = 'scale(1)';
-        }, 200);
-    }
-    
-    function handleItemsPerPageChange(e) {
-        itemsPerPage = parseInt(e.target.value);
-        currentPage = 1;
-        mostrarUsuarios();
-        updatePagination();
-        
-        // Efeito visual
-        e.target.style.transform = 'scale(1.05)';
-        setTimeout(() => {
-            e.target.style.transform = 'scale(1)';
-        }, 150);
-    }
-    
-    function confirmRemoveUser(userId) {
-        const usuario = usuarios.find(u => u.id === userId);
-        if (!usuario) return;
-        
-        document.getElementById('modalTitle').textContent = 'Confirmar Remoção';
-        document.getElementById('modalMessage').textContent = 
-            `Tem certeza que deseja remover "${usuario.nome}"? Esta ação não pode ser desfeita.`;
-        
-        confirmModal.classList.add('show');
-        
-        // Armazenar o ID do usuário para remoção
-        confirmModal.dataset.userId = userId;
-        confirmModal.dataset.action = 'remove';
-    }
-    
-    function handleConfirmAction() {
-        const action = confirmModal.dataset.action;
-        const userId = parseInt(confirmModal.dataset.userId);
-        
-        if (action === 'remove') {
-            usuarios = usuarios.filter(u => u.id !== userId);
-            salvarUsuarios();
-            applyFiltersAndSort();
-            mostrarUsuarios();
-            updatePagination();
-            
-            showToast('Sucesso', 'Usuário removido com sucesso!', 'success');
-        }
-        
-        closeConfirmModal();
-    }
-    
-    function closeConfirmModal() {
-        confirmModal.classList.remove('show');
-        delete confirmModal.dataset.userId;
-        delete confirmModal.dataset.action;
-    }
-    
-    function editUser(userId) {
-        const usuario = usuarios.find(u => u.id === userId);
-        if (!usuario) return;
-        
-        // Preencher o formulário de edição
-        document.getElementById('editUserId').value = usuario.id;
-        document.getElementById('editNome').value = usuario.nome;
-        document.getElementById('editEmail').value = usuario.email;
-        document.getElementById('editTelefone').value = usuario.telefone;
-        document.getElementById('editCargo').value = usuario.cargo;
-        
-        editModal.classList.add('show');
-    }
-    
-    function handleEditSave() {
-        const userId = parseInt(document.getElementById('editUserId').value);
-        const formData = {
-            nome: document.getElementById('editNome').value.trim(),
-            email: document.getElementById('editEmail').value.trim(),
-            telefone: document.getElementById('editTelefone').value.trim(),
-            cargo: document.getElementById('editCargo').value
-        };
-        
-        // Validar campos
-        const errors = {
-            nome: validateNome(formData.nome),
-            email: validateEmail(formData.email),
-            telefone: validateTelefone(formData.telefone),
-            cargo: validateCargo(formData.cargo)
-        };
-        
-        if (Object.values(errors).some(error => error)) {
-            showToast('Erro', 'Por favor, corrija os erros no formulário.', 'error');
-            return;
-        }
-        
-        // Adicionar loading ao botão
-        const saveBtn = document.getElementById('editModalSave');
-        const originalText = saveBtn.innerHTML;
-        saveBtn.innerHTML = '<iconify-icon icon="mdi:loading" class="animate-spin"></iconify-icon> Salvando...';
-        saveBtn.disabled = true;
-        
-        setTimeout(() => {
-            // Atualizar usuário
-            const userIndex = usuarios.findIndex(u => u.id === userId);
-            if (userIndex !== -1) {
-                usuarios[userIndex] = {
-                    ...usuarios[userIndex],
-                    ...formData
-                };
-                
-                salvarUsuarios();
-                applyFiltersAndSort();
-                mostrarUsuarios();
-                updatePagination();
-                
-                showToast('Sucesso', 'Usuário atualizado com sucesso!', 'success');
-                closeEditModal();
-            }
-            
-            saveBtn.innerHTML = originalText;
-            saveBtn.disabled = false;
-        }, 1000);
-    }
-    
-    function closeEditModal() {
-        editModal.classList.remove('show');
-    }
-    
-    function exportData() {
-        if (filteredUsuarios.length === 0) {
-            showToast('Aviso', 'Não há dados para exportar.', 'warning');
-            return;
-        }
-        
-        // Animação no botão de export
-        exportBtn.innerHTML = '<iconify-icon icon="mdi:loading" class="animate-spin"></iconify-icon> Exportando...';
-        exportBtn.disabled = true;
-        
-        setTimeout(() => {
-            const csvContent = [
-                ['Nome', 'Email', 'Telefone', 'Cargo', 'Data de Cadastro'],
-                ...filteredUsuarios.map(u => [
-                    u.nome,
-                    u.email,
-                    u.telefone,
-                    u.cargo,
-                    new Date(u.dataCadastro).toLocaleDateString('pt-BR')
-                ])
-            ].map(row => row.map(field => `"${field}"`).join(',')).join('\n');
-            
-            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-            const link = document.createElement('a');
-            const url = URL.createObjectURL(blob);
-            
-            link.setAttribute('href', url);
-            link.setAttribute('download', `usuarios_${new Date().toISOString().split('T')[0]}.csv`);
-            link.style.visibility = 'hidden';
-            
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-            
-            showToast('Sucesso', 'Dados exportados com sucesso!', 'success');
-            
-            exportBtn.innerHTML = '<iconify-icon icon="mdi:download"></iconify-icon> Exportar';
-            exportBtn.disabled = false;
-        }, 1500);
-    }
-    
-    function showToast(title, message, type = 'info') {
-        const toastContainer = document.getElementById('toastContainer');
-        const toast = document.createElement('div');
-        toast.className = `toast ${type}`;
-        
-        const icons = {
-            success: 'mdi:check-circle',
-            error: 'mdi:alert-circle',
-            warning: 'mdi:alert',
-            info: 'mdi:information'
-        };
-        
-        toast.innerHTML = `
-            <iconify-icon icon="${icons[type] || icons.info}"></iconify-icon>
-            <div class="toast-content">
-                <div class="toast-title">${title}</div>
-                <div class="toast-message">${message}</div>
-            </div>
-            <button class="toast-close">
-                <iconify-icon icon="mdi:close"></iconify-icon>
-            </button>
-        `;
-        
-        // Event listener para fechar
-        toast.querySelector('.toast-close').addEventListener('click', () => {
-            toast.style.animation = 'toastSlideOut 0.3s ease forwards';
-            setTimeout(() => {
-                toast.remove();
-            }, 300);
-        });
-        
-        toastContainer.appendChild(toast);
-        
-        // Auto remove após 5 segundos
-        setTimeout(() => {
-            if (toast.parentNode) {
-                toast.style.animation = 'toastSlideOut 0.3s ease forwards';
-                setTimeout(() => {
-                    toast.remove();
-                }, 300);
-            }
-        }, 5000);
-    }
-    
-    // Adicionar estilos de animação dinamicamente
-    const style = document.createElement('style');
-    style.textContent = `
-        @keyframes shake {
-            0%, 100% { transform: translateX(0); }
-            10%, 30%, 50%, 70%, 90% { transform: translateX(-5px); }
-            20%, 40%, 60%, 80% { transform: translateX(5px); }
-        }
-        
-        @keyframes ripple {
-            to {
-                transform: scale(2);
-                opacity: 0;
-            }
-        }
-        
-        @keyframes confetti-fall {
-            to {
-                transform: translateY(100vh) rotate(720deg);
-                opacity: 0;
-            }
-        }
-        
-        @keyframes toastSlideOut {
-            to {
-                opacity: 0;
-                transform: translateX(100%) scale(0.9);
-            }
-        }
-        
-        @keyframes flashEffect {
-            0% { opacity: 1; }
-            50% { opacity: 0.8; }
-            100% { opacity: 0; }
-        }
-        
-        @keyframes cameraModalOpen {
-            from {
-                opacity: 0;
-                transform: scale(0.9);
-            }
-            to {
-                opacity: 1;
-                transform: scale(1);
-            }
-        }
-        
-        @keyframes qrScan {
-            0%, 100% { transform: translateY(-50%); opacity: 1; }
-            50% { transform: translateY(50%); opacity: 0.5; }
-        }
-        
-        .animate-spin {
-            animation: spin 1s linear infinite;
-        }
-        
-        @keyframes spin {
-            from { transform: rotate(0deg); }
-            to { transform: rotate(360deg); }
-        }
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const preview = document.getElementById('filePreview');
+      preview.innerHTML = `<img src="${e.target.result}" alt="Preview da foto">`;
+      preview.classList.add('has-image');
+    };
+    reader.readAsDataURL(arquivo);
+  }
+
+  limparFormulario() {
+    document.getElementById('userForm').reset();
+    const preview = document.getElementById('filePreview');
+    preview.innerHTML = `
+      <iconify-icon icon="mdi:camera-plus"></iconify-icon>
+      <span>Clique para adicionar foto</span>
     `;
-    document.head.appendChild(style);
+    preview.classList.remove('has-image');
+    
+    // Clear errors
+    document.querySelectorAll('.error-message').forEach(error => {
+      error.textContent = '';
+    });
+  }
+
+  async buscarUsuarios(termo) {
+    try {
+      if (!termo.trim()) {
+        this.usuariosFiltrados = [...this.usuarios];
+      } else {
+        this.usuariosFiltrados = await this.database.searchUsers(termo);
+      }
+      
+      this.paginaAtual = 1;
+      this.renderizarUsuarios();
+      this.atualizarEstatisticas();
+      this.atualizarPaginacao();
+      
+      // Update clear button visibility
+      const clearBtn = document.getElementById('clearSearch');
+      clearBtn.classList.toggle('show', termo.length > 0);
+    } catch (error) {
+      console.error('Erro ao buscar usuários:', error);
+      this.mostrarToast('Erro na busca', 'error');
+    }
+  }
+
+  aplicarFiltros() {
+    const cargoFiltro = document.getElementById('cargoFilter').value;
+    const ordenacao = document.getElementById('sortBy').value;
+    
+    let usuariosFiltrados = [...this.usuarios];
+    
+    // Apply position filter
+    if (cargoFiltro) {
+      usuariosFiltrados = usuariosFiltrados.filter(user => user.cargo === cargoFiltro);
+    }
+    
+    // Apply search filter if there's a search term
+    const searchTerm = document.getElementById('searchInput').value.trim();
+    if (searchTerm) {
+      const searchLower = searchTerm.toLowerCase();
+      usuariosFiltrados = usuariosFiltrados.filter(user =>
+        user.nome.toLowerCase().includes(searchLower) ||
+        user.email.toLowerCase().includes(searchLower) ||
+        user.cargo.toLowerCase().includes(searchLower) ||
+        user.telefone.includes(searchTerm)
+      );
+    }
+    
+    // Apply sorting
+    usuariosFiltrados.sort((a, b) => {
+      switch (ordenacao) {
+        case 'nome':
+          return a.nome.localeCompare(b.nome);
+        case 'email':
+          return a.email.localeCompare(b.email);
+        case 'cargo':
+          return a.cargo.localeCompare(b.cargo);
+        case 'data':
+          return new Date(b.dataRegistro) - new Date(a.dataRegistro);
+        default:
+          return 0;
+      }
+    });
+    
+    this.usuariosFiltrados = usuariosFiltrados;
+    this.paginaAtual = 1;
+    this.renderizarUsuarios();
+    this.atualizarEstatisticas();
+    this.atualizarPaginacao();
+  }
+
+  alterarModoVisualizacao(modo) {
+    this.modoVisualizacao = modo;
+    
+    // Update button states
+    document.getElementById('gridView').classList.toggle('active', modo === 'grid');
+    document.getElementById('listView').classList.toggle('active', modo === 'list');
+    
+    // Update container class
+    const container = document.getElementById('usuariosContainer');
+    container.className = modo === 'grid' ? 'usuarios-grid' : 'usuarios-list';
+    
+    this.renderizarUsuarios();
+  }
+
+  renderizarUsuarios() {
+    const container = document.getElementById('usuariosContainer');
+    const emptyState = document.getElementById('emptyState');
+    
+    if (this.usuariosFiltrados.length === 0) {
+      container.innerHTML = '';
+      emptyState.style.display = 'block';
+      return;
+    }
+    
+    emptyState.style.display = 'none';
+    
+    const inicio = (this.paginaAtual - 1) * this.itensPorPagina;
+    const fim = inicio + this.itensPorPagina;
+    const usuariosPagina = this.usuariosFiltrados.slice(inicio, fim);
+    
+    container.innerHTML = usuariosPagina.map((usuario, index) => {
+      const isListView = this.modoVisualizacao === 'list';
+      return `
+        <div class="usuario-card ${isListView ? 'list-view' : ''}" style="animation-delay: ${index * 0.1}s">
+          <img src="${usuario.foto}" alt="${usuario.nome}" onerror="this.src='https://images.pexels.com/photos/1040880/pexels-photo-1040880.jpeg?auto=compress&cs=tinysrgb&w=150&h=150&fit=crop'">
+          <div class="usuario-info">
+            <h3>${usuario.nome}</h3>
+            <p><iconify-icon icon="mdi:email"></iconify-icon> ${usuario.email}</p>
+            <p><iconify-icon icon="mdi:phone"></iconify-icon> ${usuario.telefone}</p>
+            <span class="cargo">${usuario.cargo}</span>
+          </div>
+          <div class="usuario-actions">
+            <button class="action-btn edit-btn" onclick="userSystem.editarUsuario(${usuario.id})">
+              <iconify-icon icon="mdi:pencil"></iconify-icon> Editar
+            </button>
+            <button class="action-btn share-btn" onclick="userSystem.compartilharUsuario(${usuario.id})">
+              <iconify-icon icon="mdi:share"></iconify-icon> Compartilhar
+            </button>
+            <button class="action-btn remove-btn" onclick="userSystem.confirmarRemocao(${usuario.id})">
+              <iconify-icon icon="mdi:delete"></iconify-icon> Remover
+            </button>
+          </div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  atualizarEstatisticas() {
+    const total = this.usuarios.length;
+    const hoje = new Date().toDateString();
+    const novosHoje = this.usuarios.filter(user => 
+      new Date(user.dataRegistro).toDateString() === hoje
+    ).length;
+    const filtrados = this.usuariosFiltrados.length;
+    
+    // Animate number changes
+    this.animarNumero('totalUsers', total);
+    this.animarNumero('newUsersToday', novosHoje);
+    this.animarNumero('filteredUsers', filtrados);
+  }
+
+  animarNumero(elementId, novoValor) {
+    const elemento = document.getElementById(elementId);
+    const valorAtual = parseInt(elemento.textContent) || 0;
+    
+    if (valorAtual === novoValor) return;
+    
+    const duracao = 500;
+    const incremento = (novoValor - valorAtual) / (duracao / 16);
+    let valorTemp = valorAtual;
+    
+    const animar = () => {
+      valorTemp += incremento;
+      if ((incremento > 0 && valorTemp >= novoValor) || (incremento < 0 && valorTemp <= novoValor)) {
+        elemento.textContent = novoValor;
+      } else {
+        elemento.textContent = Math.round(valorTemp);
+        requestAnimationFrame(animar);
+      }
+    };
+    
+    animar();
+  }
+
+  atualizarPaginacao() {
+    const totalPaginas = Math.ceil(this.usuariosFiltrados.length / this.itensPorPagina);
+    
+    // Update navigation buttons
+    document.getElementById('firstPage').disabled = this.paginaAtual === 1;
+    document.getElementById('prevPage').disabled = this.paginaAtual === 1;
+    document.getElementById('nextPage').disabled = this.paginaAtual === totalPaginas;
+    document.getElementById('lastPage').disabled = this.paginaAtual === totalPaginas;
+    
+    // Update page numbers
+    const pageNumbers = document.getElementById('pageNumbers');
+    pageNumbers.innerHTML = '';
+    
+    const maxVisiblePages = 5;
+    let startPage = Math.max(1, this.paginaAtual - Math.floor(maxVisiblePages / 2));
+    let endPage = Math.min(totalPaginas, startPage + maxVisiblePages - 1);
+    
+    if (endPage - startPage < maxVisiblePages - 1) {
+      startPage = Math.max(1, endPage - maxVisiblePages + 1);
+    }
+    
+    for (let i = startPage; i <= endPage; i++) {
+      const button = document.createElement('button');
+      button.textContent = i;
+      button.classList.toggle('active', i === this.paginaAtual);
+      button.addEventListener('click', () => this.irParaPagina(i));
+      pageNumbers.appendChild(button);
+    }
+    
+    // Update page info
+    const inicio = (this.paginaAtual - 1) * this.itensPorPagina + 1;
+    const fim = Math.min(this.paginaAtual * this.itensPorPagina, this.usuariosFiltrados.length);
+    document.getElementById('pageInfo').textContent = 
+      `Página ${this.paginaAtual} de ${totalPaginas} (${inicio}-${fim} de ${this.usuariosFiltrados.length})`;
+  }
+
+  irParaPagina(pagina) {
+    const totalPaginas = Math.ceil(this.usuariosFiltrados.length / this.itensPorPagina);
+    
+    if (pagina < 1 || pagina > totalPaginas) return;
+    
+    this.paginaAtual = pagina;
+    this.renderizarUsuarios();
+    this.atualizarPaginacao();
+    
+    // Scroll to top of users section
+    document.querySelector('.users-section').scrollIntoView({ 
+      behavior: 'smooth', 
+      block: 'start' 
+    });
+  }
+
+  async editarUsuario(id) {
+    try {
+      const usuario = this.usuarios.find(u => u.id === id);
+      if (!usuario) return;
+      
+      this.usuarioEditando = usuario;
+      
+      // Fill edit form
+      document.getElementById('editUserId').value = usuario.id;
+      document.getElementById('editNome').value = usuario.nome;
+      document.getElementById('editEmail').value = usuario.email;
+      document.getElementById('editTelefone').value = usuario.telefone;
+      document.getElementById('editCargo').value = usuario.cargo;
+      
+      this.abrirModal('editModal');
+    } catch (error) {
+      console.error('Erro ao editar usuário:', error);
+      this.mostrarToast('Erro ao carregar dados do usuário', 'error');
+    }
+  }
+
+  async salvarEdicaoUsuario() {
+    try {
+      const id = parseInt(document.getElementById('editUserId').value);
+      const dadosAtualizados = {
+        nome: document.getElementById('editNome').value.trim(),
+        email: document.getElementById('editEmail').value.trim(),
+        telefone: document.getElementById('editTelefone').value.trim(),
+        cargo: document.getElementById('editCargo').value
+      };
+      
+      // Update in database
+      await this.database.updateUser(id, dadosAtualizados);
+      
+      // Update local arrays
+      const index = this.usuarios.findIndex(u => u.id === id);
+      if (index !== -1) {
+        Object.assign(this.usuarios[index], dadosAtualizados);
+      }
+      
+      this.aplicarFiltros();
+      this.renderizarUsuarios();
+      this.fecharModal('editModal');
+      this.usuarioEditando = null;
+      
+      this.mostrarToast('Usuário atualizado com sucesso!', 'success');
+    } catch (error) {
+      console.error('Erro ao salvar usuário:', error);
+      this.mostrarToast('Erro ao salvar alterações', 'error');
+    }
+  }
+
+  confirmarRemocao(id) {
+    const usuario = this.usuarios.find(u => u.id === id);
+    if (!usuario) return;
+    
+    document.getElementById('modalTitle').textContent = 'Confirmar Remoção';
+    document.getElementById('modalMessage').textContent = 
+      `Tem certeza que deseja remover o usuário "${usuario.nome}"? Esta ação não pode ser desfeita.`;
+    
+    const confirmBtn = document.getElementById('modalConfirm');
+    confirmBtn.onclick = () => this.removerUsuario(id);
+    
+    this.abrirModal('confirmModal');
+  }
+
+  async removerUsuario(id) {
+    try {
+      // Remove from database
+      await this.database.deleteUser(id);
+      
+      // Remove from local arrays
+      this.usuarios = this.usuarios.filter(u => u.id !== id);
+      this.aplicarFiltros();
+      
+      this.renderizarUsuarios();
+      this.atualizarEstatisticas();
+      this.atualizarPaginacao();
+      this.fecharModal('confirmModal');
+      
+      this.mostrarToast('Usuário removido com sucesso!', 'success');
+    } catch (error) {
+      console.error('Erro ao remover usuário:', error);
+      this.mostrarToast('Erro ao remover usuário', 'error');
+    }
+  }
+
+  async compartilharUsuario(id) {
+    try {
+      const usuario = this.usuarios.find(u => u.id === id);
+      if (!usuario) return;
+      
+      // Update share modal content
+      document.getElementById('shareUserName').textContent = usuario.nome;
+      document.getElementById('shareUserDetails').textContent = 
+        `${usuario.cargo} • ${usuario.email}`;
+      
+      // Generate QR code
+      const userData = {
+        nome: usuario.nome,
+        email: usuario.email,
+        telefone: usuario.telefone,
+        cargo: usuario.cargo
+      };
+      
+      const canvas = document.getElementById('qrCodeCanvas');
+      await QRCode.toCanvas(canvas, JSON.stringify(userData), {
+        width: 200,
+        margin: 2,
+        color: {
+          dark: '#000000',
+          light: '#FFFFFF'
+        }
+      });
+      
+      this.abrirModal('shareModal');
+    } catch (error) {
+      console.error('Erro ao gerar QR code:', error);
+      this.mostrarToast('Erro ao gerar QR code', 'error');
+    }
+  }
+
+  baixarQRCode() {
+    const canvas = document.getElementById('qrCodeCanvas');
+    const link = document.createElement('a');
+    link.download = 'qr-code-usuario.png';
+    link.href = canvas.toDataURL();
+    link.click();
+    
+    this.mostrarToast('QR Code baixado!', 'success');
+  }
+
+  async compartilharQRCode() {
+    try {
+      const canvas = document.getElementById('qrCodeCanvas');
+      canvas.toBlob(async (blob) => {
+        if (navigator.share) {
+          const file = new File([blob], 'qr-code-usuario.png', { type: 'image/png' });
+          await navigator.share({
+            title: 'QR Code do Usuário',
+            text: 'Compartilhando dados do usuário via QR Code',
+            files: [file]
+          });
+        } else {
+          // Fallback: copy to clipboard
+          const item = new ClipboardItem({ 'image/png': blob });
+          await navigator.clipboard.write([item]);
+          this.mostrarToast('QR Code copiado para a área de transferência!', 'success');
+        }
+      });
+    } catch (error) {
+      console.error('Erro ao compartilhar:', error);
+      this.mostrarToast('Erro ao compartilhar QR Code', 'error');
+    }
+  }
+
+  exportarDados() {
+    try {
+      const dados = this.usuariosFiltrados.map(usuario => ({
+        Nome: usuario.nome,
+        Email: usuario.email,
+        Telefone: usuario.telefone,
+        Cargo: usuario.cargo,
+        'Data de Registro': new Date(usuario.dataRegistro).toLocaleDateString('pt-BR')
+      }));
+      
+      const csv = this.converterParaCSV(dados);
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const link = document.createElement('a');
+      
+      link.href = URL.createObjectURL(blob);
+      link.download = `usuarios_${new Date().toISOString().split('T')[0]}.csv`;
+      link.click();
+      
+      this.mostrarToast('Dados exportados com sucesso!', 'success');
+    } catch (error) {
+      console.error('Erro ao exportar dados:', error);
+      this.mostrarToast('Erro ao exportar dados', 'error');
+    }
+  }
+
+  converterParaCSV(dados) {
+    if (dados.length === 0) return '';
+    
+    const headers = Object.keys(dados[0]);
+    const csvContent = [
+      headers.join(','),
+      ...dados.map(row => 
+        headers.map(header => `"${row[header] || ''}"`).join(',')
+      )
+    ].join('\n');
+    
+    return '\uFEFF' + csvContent; // Add BOM for proper UTF-8 encoding
+  }
+
+  abrirModal(modalId) {
+    const modal = document.getElementById(modalId);
+    modal.classList.add('show');
+    
+    // Focus trap for accessibility
+    const focusableElements = modal.querySelectorAll(
+      'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+    );
+    if (focusableElements.length > 0) {
+      focusableElements[0].focus();
+    }
+  }
+
+  fecharModal(modalId) {
+    const modal = document.getElementById(modalId);
+    modal.classList.remove('show');
+  }
+
+  mostrarToast(mensagem, tipo = 'info') {
+    const container = document.getElementById('toastContainer');
+    const toast = document.createElement('div');
+    toast.className = `toast ${tipo}`;
+    
+    const icones = {
+      success: 'mdi:check-circle',
+      error: 'mdi:alert-circle',
+      warning: 'mdi:alert',
+      info: 'mdi:information'
+    };
+    
+    toast.innerHTML = `
+      <iconify-icon icon="${icones[tipo] || icones.info}"></iconify-icon>
+      <div class="toast-content">
+        <div class="toast-title">${mensagem}</div>
+      </div>
+      <button class="toast-close">
+        <iconify-icon icon="mdi:close"></iconify-icon>
+      </button>
+    `;
+    
+    container.appendChild(toast);
+    
+    // Auto remove
+    setTimeout(() => {
+      toast.style.opacity = '0';
+      toast.style.transform = 'translateX(100%)';
+      setTimeout(() => {
+        if (container.contains(toast)) {
+          container.removeChild(toast);
+        }
+      }, 300);
+    }, 5000);
+    
+    // Manual close
+    toast.querySelector('.toast-close').addEventListener('click', () => {
+      toast.style.opacity = '0';
+      toast.style.transform = 'translateX(100%)';
+      setTimeout(() => {
+        if (container.contains(toast)) {
+          container.removeChild(toast);
+        }
+      }, 300);
+    });
+  }
+}
+
+// Initialize the system when DOM is loaded
+document.addEventListener('DOMContentLoaded', () => {
+  window.userSystem = new UserSystem();
+});
+
+// Phone number formatting
+document.getElementById('telefone')?.addEventListener('input', function(e) {
+  let value = e.target.value.replace(/\D/g, '');
+  if (value.length <= 11) {
+    value = value.replace(/(\d{2})(\d{4,5})(\d{4})/, '($1) $2-$3');
+    e.target.value = value;
+  }
+});
+
+// Edit form phone formatting
+document.getElementById('editTelefone')?.addEventListener('input', function(e) {
+  let value = e.target.value.replace(/\D/g, '');
+  if (value.length <= 11) {
+    value = value.replace(/(\d{2})(\d{4,5})(\d{4})/, '($1) $2-$3');
+    e.target.value = value;
+  }
 });
