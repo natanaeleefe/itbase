@@ -1,4 +1,6 @@
 // Custom Camera System with iOS Design
+import CustomQRScanner from './qr-scanner.js';
+
 class CameraSystem {
   constructor() {
     this.stream = null;
@@ -68,15 +70,17 @@ class CameraSystem {
       if (this.isQRMode) {
         cameraTitle.textContent = 'Escanear QR Code';
         qrOverlay.style.display = 'flex';
-        this.startQRScanner();
+        
+        // Initialize custom QR scanner
+        await this.startCustomQRScanner();
       } else {
         cameraTitle.textContent = 'Câmera';
         qrOverlay.style.display = 'none';
         this.stopQRScanner();
+        
+        // Start regular camera
+        await this.startCamera();
       }
-
-      // Request camera permission
-      await this.startCamera();
       
       // Show camera modal
       const cameraModal = document.getElementById('cameraModal');
@@ -87,7 +91,39 @@ class CameraSystem {
       
     } catch (error) {
       console.error('Error opening camera:', error);
-      this.showToast('Erro ao acessar a câmera', 'error');
+      this.showToast('Erro ao acessar a câmera: ' + error.message, 'error');
+    }
+  }
+
+  async startCustomQRScanner() {
+    try {
+      // Create QR scanner instance
+      this.qrScanner = new CustomQRScanner();
+      
+      // Initialize with callbacks
+      const success = await this.qrScanner.init(
+        this.video,
+        (data) => {
+          if (this.onQRDetectedCallback) {
+            this.onQRDetectedCallback(data);
+          }
+          // Close camera after successful scan
+          setTimeout(() => {
+            this.closeCamera();
+          }, 1000);
+        },
+        (error) => {
+          this.showToast(error, 'error');
+        }
+      );
+      
+      if (success) {
+        await this.qrScanner.start();
+      }
+      
+    } catch (error) {
+      console.error('Error starting QR scanner:', error);
+      this.showToast('Erro ao iniciar scanner QR: ' + error.message, 'error');
     }
   }
 
@@ -123,8 +159,12 @@ class CameraSystem {
 
   async switchCamera() {
     try {
-      this.currentCamera = this.currentCamera === 'user' ? 'environment' : 'user';
-      await this.startCamera();
+      if (this.isQRMode && this.qrScanner) {
+        await this.qrScanner.switchCamera();
+      } else {
+        this.currentCamera = this.currentCamera === 'user' ? 'environment' : 'user';
+        await this.startCamera();
+      }
       
       // Add switch animation
       const switchBtn = document.getElementById('switchCameraBtn');
@@ -141,28 +181,32 @@ class CameraSystem {
 
   async toggleFlash() {
     try {
-      const track = this.stream.getVideoTracks()[0];
-      const capabilities = track.getCapabilities();
-      
-      if (capabilities.torch) {
-        this.flashEnabled = !this.flashEnabled;
-        await track.applyConstraints({
-          advanced: [{ torch: this.flashEnabled }]
-        });
-        
-        // Update flash button icon
-        const flashBtn = document.getElementById('flashBtn');
-        const icon = flashBtn.querySelector('iconify-icon');
-        icon.setAttribute('icon', this.flashEnabled ? 'mdi:flash' : 'mdi:flash-off');
-        
-        // Add flash animation
-        flashBtn.style.transform = 'scale(1.2)';
-        setTimeout(() => {
-          flashBtn.style.transform = 'scale(1)';
-        }, 200);
-        
+      if (this.isQRMode && this.qrScanner) {
+        await this.qrScanner.toggleFlash();
       } else {
-        this.showToast('Flash não disponível neste dispositivo', 'warning');
+        const track = this.stream.getVideoTracks()[0];
+        const capabilities = track.getCapabilities();
+        
+        if (capabilities.torch) {
+          this.flashEnabled = !this.flashEnabled;
+          await track.applyConstraints({
+            advanced: [{ torch: this.flashEnabled }]
+          });
+          
+          // Update flash button icon
+          const flashBtn = document.getElementById('flashBtn');
+          const icon = flashBtn.querySelector('iconify-icon');
+          icon.setAttribute('icon', this.flashEnabled ? 'mdi:flash' : 'mdi:flash-off');
+          
+          // Add flash animation
+          flashBtn.style.transform = 'scale(1.2)';
+          setTimeout(() => {
+            flashBtn.style.transform = 'scale(1)';
+          }, 200);
+          
+        } else {
+          this.showToast('Flash não disponível neste dispositivo', 'warning');
+        }
       }
     } catch (error) {
       console.error('Error toggling flash:', error);
@@ -217,39 +261,8 @@ class CameraSystem {
     document.body.removeChild(input);
   }
 
-  async startQRScanner() {
-    if (!this.isQRMode) return;
-
-    try {
-      // Dynamic import for QR Scanner
-      const QrScanner = (await import('qr-scanner')).default;
-      
-      this.qrScanner = new QrScanner(
-        this.video,
-        (result) => {
-          if (this.onQRDetectedCallback) {
-            this.onQRDetectedCallback(result.data);
-          }
-          this.closeCamera();
-        },
-        {
-          highlightScanRegion: true,
-          highlightCodeOutline: true,
-          preferredCamera: this.currentCamera
-        }
-      );
-      
-      await this.qrScanner.start();
-      
-    } catch (error) {
-      console.error('Error starting QR scanner:', error);
-      this.showToast('Erro ao iniciar scanner QR', 'error');
-    }
-  }
-
   stopQRScanner() {
     if (this.qrScanner) {
-      this.qrScanner.stop();
       this.qrScanner.destroy();
       this.qrScanner = null;
     }
